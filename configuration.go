@@ -4,13 +4,14 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"github.com/containous/traefik/acme"
-	"github.com/containous/traefik/provider"
-	"github.com/containous/traefik/types"
 	"os"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/containous/traefik/acme"
+	"github.com/containous/traefik/provider"
+	"github.com/containous/traefik/types"
 )
 
 // TraefikConfiguration holds GlobalConfiguration and other stuff
@@ -46,6 +47,7 @@ type GlobalConfiguration struct {
 	Boltdb                    *provider.BoltDb        `description:"Enable Boltdb backend"`
 	Kubernetes                *provider.Kubernetes    `description:"Enable Kubernetes backend"`
 	Mesos                     *provider.Mesos         `description:"Enable Mesos backend"`
+	WebAPI                    *provider.WebAPI        `description:"Enable WebAPI backend"`
 }
 
 // DefaultEntryPoints holds default entry points

@@ -8,7 +8,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"errors"
-	"golang.org/x/net/context"
 	"io/ioutil"
 	"net/http"
 	"net/url"
@@ -19,6 +18,8 @@ import (
 	"sort"
 	"syscall"
 	"time"
+
+	"golang.org/x/net/context"
 
 	log "github.com/Sirupsen/logrus"
 	"github.com/codegangsta/negroni"
@@ -307,6 +308,9 @@ func (server *Server) configureProviders() {
 	}
 	if server.globalConfiguration.Mesos != nil {
 		server.providers = append(server.providers, server.globalConfiguration.Mesos)
+	}
+	if server.globalConfiguration.WebAPI != nil {
+		server.providers = append(server.providers, server.globalConfiguration.WebAPI)
 	}
 }
 
