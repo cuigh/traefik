@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/net/context"
+
 	"github.com/codegangsta/negroni"
 	"github.com/containous/mux"
 	"github.com/containous/traefik/cluster"
@@ -355,6 +357,9 @@ func (server *Server) configureProviders() {
 	}
 	if server.globalConfiguration.Eureka != nil {
 		server.providers = append(server.providers, server.globalConfiguration.Eureka)
+	}
+	if server.globalConfiguration.WebAPI != nil {
+		server.providers = append(server.providers, server.globalConfiguration.WebAPI)
 	}
 }
 

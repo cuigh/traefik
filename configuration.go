@@ -50,6 +50,7 @@ type GlobalConfiguration struct {
 	Kubernetes                *provider.Kubernetes    `description:"Enable Kubernetes backend"`
 	Mesos                     *provider.Mesos         `description:"Enable Mesos backend"`
 	Eureka                    *provider.Eureka        `description:"Enable Eureka backend"`
+	WebAPI                    *provider.WebAPI        `description:"Enable WebAPI backend"`
 }
 
 // DefaultEntryPoints holds default entry points
