@@ -15,10 +15,10 @@ import (
 
 // WebAPI holds configurations of the WebAPI provider.
 type WebAPI struct {
-	Endpoint      string        `description:"Comma sepparated server endpoints"`
-	Cluster       string        `description:"Web cluster"`
-	Watch         bool          `description:"Watch provider"`
-	CheckInterval time.Duration `description:"Check interval for config"`
+	Endpoint      string `description:"Comma sepparated server endpoints"`
+	Cluster       string `description:"Web cluster"`
+	Watch         bool   `description:"Watch provider"`
+	CheckInterval int    `description:"Check interval with seconds for config"`
 	version       int
 }
 
@@ -26,7 +26,7 @@ type WebAPI struct {
 // using the given configuration channel.
 func (provider *WebAPI) Provide(configurationChan chan<- types.ConfigMessage, _ *safe.Pool, _ []types.Constraint) error {
 	if provider.CheckInterval == 0 {
-		provider.CheckInterval = time.Second * 30
+		provider.CheckInterval = 30
 	}
 
 	log.Infof("webapi > {Endpoint: %s, Watch: %v, Cluster: %s, Checkinterval: %s}",
@@ -93,7 +93,7 @@ func (provider *WebAPI) watch(configurationChan chan<- types.ConfigMessage) {
 		}
 	}()
 
-	time.Sleep(provider.CheckInterval)
+	time.Sleep(time.Duration(provider.CheckInterval) * time.Second)
 
 	if version := provider.loadVersion(); version != provider.version {
 		log.Infof("webapi > refresh ok: %v", version)
