@@ -24,7 +24,7 @@ type WebAPI struct {
 
 // Provide allows the provider to provide configurations to traefik
 // using the given configuration channel.
-func (provider *WebAPI) Provide(configurationChan chan<- types.ConfigMessage, _ *safe.Pool, _ []types.Constraint) error {
+func (provider *WebAPI) Provide(configurationChan chan<- types.ConfigMessage, _ *safe.Pool, _ types.Constraints) error {
 	if provider.CheckInterval == 0 {
 		provider.CheckInterval = 30
 	}

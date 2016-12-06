@@ -20,8 +20,6 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/net/context"
-
 	"github.com/codegangsta/negroni"
 	"github.com/containous/mux"
 	"github.com/containous/traefik/cluster"
