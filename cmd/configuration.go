@@ -41,7 +41,7 @@ type TraefikConfiguration struct {
 
 // NewTraefikDefaultPointersConfiguration creates a TraefikConfiguration with pointers default values
 func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
-	//default Docker
+	// default Docker
 	var defaultDocker docker.Provider
 	defaultDocker.Watch = true
 	defaultDocker.ExposedByDefault = true
@@ -51,7 +51,7 @@ func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
 	// default File
 	var defaultFile file.Provider
 	defaultFile.Watch = true
-	defaultFile.Filename = "" //needs equivalent to  viper.ConfigFileUsed()
+	defaultFile.Filename = "" // needs equivalent to  viper.ConfigFileUsed()
 
 	// default Rest
 	var defaultRest rest.Provider
@@ -115,21 +115,21 @@ func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
 	defaultEtcd.Prefix = "/traefik"
 	defaultEtcd.Constraints = types.Constraints{}
 
-	//default Zookeeper
+	// default Zookeeper
 	var defaultZookeeper zk.Provider
 	defaultZookeeper.Watch = true
 	defaultZookeeper.Endpoint = "127.0.0.1:2181"
 	defaultZookeeper.Prefix = "traefik"
 	defaultZookeeper.Constraints = types.Constraints{}
 
-	//default Boltdb
+	// default Boltdb
 	var defaultBoltDb boltdb.Provider
 	defaultBoltDb.Watch = true
 	defaultBoltDb.Endpoint = "127.0.0.1:4001"
 	defaultBoltDb.Prefix = "/traefik"
 	defaultBoltDb.Constraints = types.Constraints{}
 
-	//default Kubernetes
+	// default Kubernetes
 	var defaultKubernetes kubernetes.Provider
 	defaultKubernetes.Watch = true
 	defaultKubernetes.Constraints = types.Constraints{}
@@ -144,7 +144,7 @@ func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
 	defaultMesos.ZkDetectionTimeout = 30
 	defaultMesos.StateTimeoutSecond = 30
 
-	//default ECS
+	// default ECS
 	var defaultECS ecs.Provider
 	defaultECS.Watch = true
 	defaultECS.ExposedByDefault = true
@@ -153,7 +153,7 @@ func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
 	defaultECS.RefreshSeconds = 15
 	defaultECS.Constraints = types.Constraints{}
 
-	//default Rancher
+	// default Rancher
 	var defaultRancher rancher.Provider
 	defaultRancher.Watch = true
 	defaultRancher.ExposedByDefault = true
@@ -168,7 +168,7 @@ func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
 
 	// default Eureka
 	var defaultEureka eureka.Provider
-	defaultEureka.Delay = flaeg.Duration(30 * time.Second)
+	defaultEureka.RefreshSeconds = flaeg.Duration(30 * time.Second)
 
 	// default ServiceFabric
 	var defaultServiceFabric servicefabric.Provider
@@ -195,6 +195,13 @@ func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
 	defaultAccessLog := types.AccessLog{
 		Format:   accesslog.CommonFormat,
 		FilePath: "",
+		Filters:  &types.AccessLogFilters{},
+		Fields: &types.AccessLogFields{
+			DefaultMode: types.AccessLogKeep,
+			Headers: &types.FieldHeaders{
+				DefaultMode: types.AccessLogKeep,
+			},
+		},
 	}
 
 	// default HealthCheckConfig
@@ -220,7 +227,7 @@ func NewTraefikDefaultPointersConfiguration() *TraefikConfiguration {
 			SamplingServerURL:  "http://localhost:5778/sampling",
 			SamplingType:       "const",
 			SamplingParam:      1.0,
-			LocalAgentHostPort: "127.0.0.1:6832",
+			LocalAgentHostPort: "127.0.0.1:6831",
 		},
 		Zipkin: &zipkin.Config{
 			HTTPEndpoint: "http://localhost:9411/api/v1/spans",
@@ -306,7 +313,6 @@ func NewTraefikConfiguration() *TraefikConfiguration {
 		GlobalConfiguration: configuration.GlobalConfiguration{
 			AccessLogsFile:            "",
 			TraefikLogsFile:           "",
-			LogLevel:                  "ERROR",
 			EntryPoints:               map[string]*configuration.EntryPoint{},
 			Constraints:               types.Constraints{},
 			DefaultEntryPoints:        []string{"http"},

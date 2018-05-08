@@ -41,18 +41,18 @@ func (p *Provider) buildConfiguration() *types.Configuration {
 		"getTLSSection": p.getTLSSection,
 
 		// Frontend functions
-		"getBackendName":          p.getFuncString(pathFrontendBackend, ""),
-		"getPriority":             p.getFuncInt(pathFrontendPriority, 0),
-		"getPassHostHeader":       p.getFuncBool(pathFrontendPassHostHeader, true),
-		"getPassTLSCert":          p.getFuncBool(pathFrontendPassTLSCert, label.DefaultPassTLSCert),
-		"getEntryPoints":          p.getFuncList(pathFrontendEntryPoints),
-		"getWhitelistSourceRange": p.getFuncList(pathFrontendWhiteListSourceRange),
-		"getBasicAuth":            p.getFuncList(pathFrontendBasicAuth),
-		"getRoutes":               p.getRoutes,
-		"getRedirect":             p.getRedirect,
-		"getErrorPages":           p.getErrorPages,
-		"getRateLimit":            p.getRateLimit,
-		"getHeaders":              p.getHeaders,
+		"getBackendName":    p.getFuncString(pathFrontendBackend, ""),
+		"getPriority":       p.getFuncInt(pathFrontendPriority, label.DefaultFrontendPriority),
+		"getPassHostHeader": p.getPassHostHeader(),
+		"getPassTLSCert":    p.getFuncBool(pathFrontendPassTLSCert, label.DefaultPassTLSCert),
+		"getEntryPoints":    p.getFuncList(pathFrontendEntryPoints),
+		"getBasicAuth":      p.getFuncList(pathFrontendBasicAuth),
+		"getRoutes":         p.getRoutes,
+		"getRedirect":       p.getRedirect,
+		"getErrorPages":     p.getErrorPages,
+		"getRateLimit":      p.getRateLimit,
+		"getHeaders":        p.getHeaders,
+		"getWhiteList":      p.getWhiteList,
 
 		// Backend functions
 		"getServers":              p.getServers,
@@ -81,6 +81,24 @@ func (p *Provider) buildConfiguration() *types.Configuration {
 }
 
 // Deprecated
+func (p *Provider) getPassHostHeader() func(rootPath string) bool {
+	return func(rootPath string) bool {
+		rawValue := p.get("", rootPath, pathFrontendPassHostHeader)
+
+		if len(rawValue) > 0 {
+			value, err := strconv.ParseBool(rawValue)
+			if err != nil {
+				log.Errorf("Invalid value for %s %s: %s", rootPath, pathFrontendPassHostHeader, rawValue)
+				return label.DefaultPassHostHeader
+			}
+			return value
+		}
+
+		return p.getBool(label.DefaultPassHostHeader, rootPath, pathFrontendPassHostHeaderDeprecated)
+	}
+}
+
+// Deprecated
 func (p *Provider) getSticky(rootPath string) bool {
 	stickyValue := p.get("", rootPath, pathBackendLoadBalancerSticky)
 	if len(stickyValue) > 0 {
@@ -105,6 +123,19 @@ func (p *Provider) hasStickinessLabel(rootPath string) bool {
 // Deprecated
 func (p *Provider) getStickinessCookieName(rootPath string) string {
 	return p.get("", rootPath, pathBackendLoadBalancerStickinessCookieName)
+}
+
+func (p *Provider) getWhiteList(rootPath string) *types.WhiteList {
+	ranges := p.getList(rootPath, pathFrontendWhiteListSourceRange)
+
+	if len(ranges) > 0 {
+		return &types.WhiteList{
+			SourceRange:      ranges,
+			UseXForwardedFor: p.getBool(false, rootPath, pathFrontendWhiteListUseXForwardedFor),
+		}
+	}
+
+	return nil
 }
 
 func (p *Provider) getRedirect(rootPath string) *types.Redirect {
@@ -371,7 +402,7 @@ func (p *Provider) getServers(rootPath string) map[string]types.Server {
 		serverName := p.last(serverKey)
 		servers[serverName] = types.Server{
 			URL:    serverURL,
-			Weight: p.getInt(0, serverKey, pathBackendServerWeight),
+			Weight: p.getInt(label.DefaultWeight, serverKey, pathBackendServerWeight),
 		}
 	}
 

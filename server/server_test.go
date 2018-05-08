@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,14 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"context"
-
 	"github.com/containous/flaeg"
 	"github.com/containous/mux"
 	"github.com/containous/traefik/configuration"
 	"github.com/containous/traefik/healthcheck"
 	"github.com/containous/traefik/metrics"
 	"github.com/containous/traefik/middlewares"
+	"github.com/containous/traefik/provider/label"
 	"github.com/containous/traefik/rules"
 	"github.com/containous/traefik/testhelpers"
 	"github.com/containous/traefik/tls"
@@ -301,7 +301,10 @@ func TestThrottleProviderConfigReload(t *testing.T) {
 		stop <- true
 	}()
 
-	go throttleProviderConfigReload(throttleDuration, publishConfig, providerConfig, stop)
+	globalConfig := configuration.GlobalConfiguration{}
+	server := NewServer(globalConfig, nil)
+
+	go server.throttleProviderConfigReload(throttleDuration, publishConfig, providerConfig, stop)
 
 	publishedConfigCount := 0
 	stopConsumeConfigs := make(chan bool)
@@ -569,48 +572,75 @@ func TestServerParseHealthCheckOptions(t *testing.T) {
 	}
 }
 
-func TestNewServerWithWhitelistSourceRange(t *testing.T) {
-	cases := []struct {
+func TestBuildIPWhiteLister(t *testing.T) {
+	testCases := []struct {
 		desc                 string
-		whitelistStrings     []string
+		whitelistSourceRange []string
+		whiteList            *types.WhiteList
 		middlewareConfigured bool
 		errMessage           string
 	}{
 		{
-			desc:                 "no whitelists configued",
-			whitelistStrings:     nil,
+			desc:                 "no whitelists configured",
+			whitelistSourceRange: nil,
 			middlewareConfigured: false,
 			errMessage:           "",
-		}, {
-			desc: "whitelists configued",
-			whitelistStrings: []string{
+		},
+		{
+			desc: "whitelists configured (deprecated)",
+			whitelistSourceRange: []string{
 				"1.2.3.4/24",
 				"fe80::/16",
 			},
 			middlewareConfigured: true,
 			errMessage:           "",
-		}, {
-			desc: "invalid whitelists configued",
-			whitelistStrings: []string{
+		},
+		{
+			desc: "invalid whitelists configured (deprecated)",
+			whitelistSourceRange: []string{
 				"foo",
 			},
 			middlewareConfigured: false,
-			errMessage:           "parsing CIDR whitelist [foo]: parsing CIDR whitelist <nil>: invalid CIDR address: foo",
+			errMessage:           "parsing CIDR whitelist [foo]: parsing CIDR white list <nil>: invalid CIDR address: foo",
+		},
+		{
+			desc: "whitelists configured",
+			whiteList: &types.WhiteList{
+				SourceRange: []string{
+					"1.2.3.4/24",
+					"fe80::/16",
+				},
+				UseXForwardedFor: false,
+			},
+			middlewareConfigured: true,
+			errMessage:           "",
+		},
+		{
+			desc: "invalid whitelists configured (deprecated)",
+			whiteList: &types.WhiteList{
+				SourceRange: []string{
+					"foo",
+				},
+				UseXForwardedFor: false,
+			},
+			middlewareConfigured: false,
+			errMessage:           "parsing CIDR whitelist [foo]: parsing CIDR white list <nil>: invalid CIDR address: foo",
 		},
 	}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.desc, func(t *testing.T) {
+	for _, test := range testCases {
+		test := test
+		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
-			middleware, err := configureIPWhitelistMiddleware(tc.whitelistStrings)
 
-			if tc.errMessage != "" {
-				require.EqualError(t, err, tc.errMessage)
+			middleware, err := buildIPWhiteLister(test.whiteList, test.whitelistSourceRange)
+
+			if test.errMessage != "" {
+				require.EqualError(t, err, test.errMessage)
 			} else {
 				assert.NoError(t, err)
 
-				if tc.middlewareConfigured {
+				if test.middlewareConfigured {
 					require.NotNil(t, middleware, "not expected middleware to be configured")
 				} else {
 					require.Nil(t, middleware, "expected middleware to be configured")
@@ -1191,7 +1221,7 @@ func buildBackend(backendBuilders ...func(*types.Backend)) *types.Backend {
 
 func withServer(name, url string) func(backend *types.Backend) {
 	return func(be *types.Backend) {
-		be.Servers[name] = types.Server{URL: url}
+		be.Servers[name] = types.Server{URL: url, Weight: label.DefaultWeight}
 	}
 }
 

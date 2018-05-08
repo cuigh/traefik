@@ -15,28 +15,28 @@ Træfik supports two backends: Jaeger and Zipkin.
   #
   # Default: "jaeger"
   #
-  Backend = "jaeger"
+  backend = "jaeger"
 
   # Service name used in Jaeger backend
   #
   # Default: "traefik"
   #
-  ServiceName = "traefik"
+  serviceName = "traefik"
 
   [tracing.jaeger]
-    # SamplingServerURL is the address of jaeger-agent's HTTP sampling server
+    # Sampling Server URL is the address of jaeger-agent's HTTP sampling server
     #
     # Default: "http://localhost:5778/sampling"
     #
-    SamplingServerURL = "http://localhost:5778/sampling"
+    samplingServerURL = "http://localhost:5778/sampling"
 
     # Sampling Type specifies the type of the sampler: const, probabilistic, rateLimiting
     #
     # Default: "const"
     #
-    SamplingType = "const"
+    samplingType = "const"
 
-    # SamplingParam Param is a value passed to the sampler.
+    # Sampling Param is a value passed to the sampler.
     # Valid values for Param field are:
     #   - for "const" sampler, 0 or 1 for always false/true respectively
     #   - for "probabilistic" sampler, a probability between 0 and 1
@@ -44,14 +44,17 @@ Træfik supports two backends: Jaeger and Zipkin.
     #
     # Default: 1.0
     #
-    SamplingParam = 1.0
+    samplingParam = 1.0
 
-    # LocalAgentHostPort instructs reporter to send spans to jaeger-agent at this address
+    # Local Agent Host Port instructs reporter to send spans to jaeger-agent at this address
     #
-    # Default: "127.0.0.1:6832"
+    # Default: "127.0.0.1:6831"
     #
-    LocalAgentHostPort = "127.0.0.1:6832"
+    localAgentHostPort = "127.0.0.1:6831"
 ```
+
+!!! warning
+    Træfik is only able to send data over compact thrift protocol to the [Jaeger agent](https://www.jaegertracing.io/docs/deployment/#agent). 
 
 ## Zipkin
 
@@ -62,36 +65,36 @@ Træfik supports two backends: Jaeger and Zipkin.
   #
   # Default: "jaeger"
   #
-  Backend = "zipkin"
+  backend = "zipkin"
 
   # Service name used in Zipkin backend
   #
   # Default: "traefik"
   #
-  ServiceName = "traefik"
+  serviceName = "traefik"
 
   [tracing.zipkin]
     # Zipking HTTP endpoint used to send data
     #
     # Default: "http://localhost:9411/api/v1/spans"
     #
-    HTTPEndpoint = "http://localhost:9411/api/v1/spans"
+    httpEndpoint = "http://localhost:9411/api/v1/spans"
 
     # Enable Zipkin debug
     #
     # Default: false
     #
-    Debug = false
+    debug = false
 
     # Use ZipKin SameSpan RPC style traces
     #
     # Default: false
     #
-    SameSpan = false
+    sameSpan = false
 
     # Use ZipKin 128 bit root span IDs
     #
     # Default: true
     #
-    ID128Bit = true
+    id128Bit = true
 ```

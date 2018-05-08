@@ -55,10 +55,6 @@ defaultEntryPoints = ["http", "https"]
 
 ## Let's Encrypt support
 
-!!! note
-    Even if `TLS-SNI-01` challenge is [disabled](https://community.letsencrypt.org/t/2018-01-11-update-regarding-acme-tls-sni-and-shared-hosting-infrastructure/50188), for the moment, it stays the _by default_ ACME Challenge in Træfik but all the examples use the `HTTP-01` challenge (except DNS challenge examples).
-    If `TLS-SNI-01` challenge is not re-enabled in the future, it we will be removed from Træfik.
-
 ### Basic example with HTTP challenge
 
 ```toml
@@ -93,7 +89,7 @@ This configuration allows generating Let's Encrypt certificates (thanks to `HTTP
 
 Træfik generates these certificates when it starts and it needs to be restart if new domains are added.
 
-### OnHostRule option (with HTTP challenge)
+### onHostRule option (with HTTP challenge)
 
 ```toml
 [entryPoints]
@@ -155,7 +151,7 @@ This configuration allows generating a Let's Encrypt certificate (thanks to `HTT
 !!! note
     This option simplifies the configuration but :
 
-    * TLS handshakes will be slow when requesting a host name certificate for the first time, this can leads to DDoS attacks.
+    * TLS handshakes will be slow when requesting a hostname certificate for the first time, which can lead to DDoS attacks.
     * Let's Encrypt have rate limiting: https://letsencrypt.org/docs/rate-limits
 
     That's why, it's better to use the `onHostRule` option if possible.
@@ -190,11 +186,46 @@ entryPoint = "https"
 ```
 
 DNS challenge needs environment variables to be executed.
-These variables have to be set on the machine/container which host Træfik.
+These variables have to be set on the machine/container that host Træfik.
 
 These variables are described [in this section](/configuration/acme/#provider).
 
-### OnHostRule option and provided certificates (with HTTP challenge)
+### DNS challenge with wildcard domains
+
+```toml
+[entryPoints]
+  [entryPoints.https]
+  address = ":443"
+    [entryPoints.https.tls]
+
+[acme]
+email = "test@traefik.io"
+storage = "acme.json"
+caServer = "https://acme-staging-v02.api.letsencrypt.org/directory"
+entryPoint = "https"
+  [acme.dnsChallenge]
+  provider = "digitalocean" # DNS Provider name (cloudflare, OVH, gandi...)
+  delayBeforeCheck = 0
+
+[[acme.domains]]
+  main = "*.local1.com"
+[[acme.domains]]
+  main = "local2.com"
+  sans = ["test1.local2.com", "test2x.local2.com"]
+[[acme.domains]]
+  main = "*.local3.com"
+[[acme.domains]]
+  main = "*.local4.com"
+```
+
+DNS challenge needs environment variables to be executed.
+These variables have to be set on the machine/container that host Træfik.
+
+These variables are described [in this section](/configuration/acme/#provider).
+
+More information about wildcard certificates are available [in this section](/configuration/acme/#wildcard-domain).
+
+### onHostRule option and provided certificates (with HTTP challenge)
 
 ```toml
 [entryPoints]
@@ -327,7 +358,7 @@ defaultEntryPoints = ["http"]
     users = ["test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/", "test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0"]
 ```
 
-## Override the Traefik HTTP server IdleTimeout and/or throttle configurations from re-loading too quickly
+## Override the Traefik HTTP server idleTimeout and/or throttle configurations from re-loading too quickly
 
 ```toml
 providersThrottleDuration = "5s"

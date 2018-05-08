@@ -59,7 +59,7 @@ func TestSwarmBuildConfiguration(t *testing.T) {
 					Servers: map[string]types.Server{
 						"server-test": {
 							URL:    "http://127.0.0.1:80",
-							Weight: 0,
+							Weight: label.DefaultWeight,
 						},
 					},
 				},
@@ -122,16 +122,17 @@ func TestSwarmBuildConfiguration(t *testing.T) {
 						label.TraefikBackendBufferingMemRequestBodyBytes:     "2097152",
 						label.TraefikBackendBufferingRetryExpression:         "IsNetworkError() && Attempts() <= 2",
 
-						label.TraefikFrontendAuthBasic:            "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/,test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
-						label.TraefikFrontendEntryPoints:          "http,https",
-						label.TraefikFrontendPassHostHeader:       "true",
-						label.TraefikFrontendPassTLSCert:          "true",
-						label.TraefikFrontendPriority:             "666",
-						label.TraefikFrontendRedirectEntryPoint:   "https",
-						label.TraefikFrontendRedirectRegex:        "nope",
-						label.TraefikFrontendRedirectReplacement:  "nope",
-						label.TraefikFrontendRule:                 "Host:traefik.io",
-						label.TraefikFrontendWhitelistSourceRange: "10.10.10.10",
+						label.TraefikFrontendAuthBasic:                 "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/,test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
+						label.TraefikFrontendEntryPoints:               "http,https",
+						label.TraefikFrontendPassHostHeader:            "true",
+						label.TraefikFrontendPassTLSCert:               "true",
+						label.TraefikFrontendPriority:                  "666",
+						label.TraefikFrontendRedirectEntryPoint:        "https",
+						label.TraefikFrontendRedirectRegex:             "nope",
+						label.TraefikFrontendRedirectReplacement:       "nope",
+						label.TraefikFrontendRule:                      "Host:traefik.io",
+						label.TraefikFrontendWhiteListSourceRange:      "10.10.10.10",
+						label.TraefikFrontendWhiteListUseXForwardedFor: "true",
 
 						label.TraefikFrontendRequestHeaders:          "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
 						label.TraefikFrontendResponseHeaders:         "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
@@ -193,8 +194,9 @@ func TestSwarmBuildConfiguration(t *testing.T) {
 						"test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
 						"test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
 					},
-					WhitelistSourceRange: []string{
-						"10.10.10.10",
+					WhiteList: &types.WhiteList{
+						SourceRange:      []string{"10.10.10.10"},
+						UseXForwardedFor: true,
 					},
 					Headers: &types.Headers{
 						CustomRequestHeaders: map[string]string{
@@ -241,12 +243,12 @@ func TestSwarmBuildConfiguration(t *testing.T) {
 						"foo": {
 							Status:  []string{"404"},
 							Query:   "foo_query",
-							Backend: "foobar",
+							Backend: "backend-foobar",
 						},
 						"bar": {
 							Status:  []string{"500", "600"},
 							Query:   "bar_query",
-							Backend: "foobar",
+							Backend: "backend-foobar",
 						},
 					},
 					RateLimit: &types.RateLimit{
@@ -331,7 +333,7 @@ func TestSwarmBuildConfiguration(t *testing.T) {
 				SwarmMode:        true,
 			}
 
-			actualConfig := provider.buildConfiguration(dockerDataList)
+			actualConfig := provider.buildConfigurationV2(dockerDataList)
 			require.NotNil(t, actualConfig, "actualConfig")
 
 			assert.EqualValues(t, test.expectedBackends, actualConfig.Backends)
@@ -465,51 +467,12 @@ func TestSwarmTraefikFilter(t *testing.T) {
 		test := test
 		t.Run(strconv.Itoa(serviceID), func(t *testing.T) {
 			t.Parallel()
+
 			dData := parseService(test.service, test.networks)
+
 			actual := test.provider.containerFilter(dData)
 			if actual != test.expected {
 				t.Errorf("expected %v for %+v, got %+v", test.expected, test, actual)
-			}
-		})
-	}
-}
-
-func TestSwarmGetFuncStringLabel(t *testing.T) {
-	testCases := []struct {
-		service      swarm.Service
-		labelName    string
-		defaultValue string
-		networks     map[string]*docker.NetworkResource
-		expected     string
-	}{
-		{
-			service:      swarmService(),
-			labelName:    label.TraefikWeight,
-			defaultValue: label.DefaultWeight,
-			networks:     map[string]*docker.NetworkResource{},
-			expected:     "0",
-		},
-		{
-			service: swarmService(serviceLabels(map[string]string{
-				label.TraefikWeight: "10",
-			})),
-			labelName:    label.TraefikWeight,
-			defaultValue: label.DefaultWeight,
-			networks:     map[string]*docker.NetworkResource{},
-			expected:     "10",
-		},
-	}
-
-	for serviceID, test := range testCases {
-		test := test
-		t.Run(test.labelName+strconv.Itoa(serviceID), func(t *testing.T) {
-			t.Parallel()
-
-			dData := parseService(test.service, test.networks)
-
-			actual := getFuncStringLabel(test.labelName, test.defaultValue)(dData)
-			if actual != test.expected {
-				t.Errorf("got %q, expected %q", actual, test.expected)
 			}
 		})
 	}
@@ -563,15 +526,18 @@ func TestSwarmGetFrontendName(t *testing.T) {
 		test := test
 		t.Run(strconv.Itoa(serviceID), func(t *testing.T) {
 			t.Parallel()
+
 			dData := parseService(test.service, test.networks)
+			segmentProperties := label.ExtractTraefikLabels(dData.Labels)
+			dData.SegmentLabels = segmentProperties[""]
+
 			provider := &Provider{
 				Domain:    "docker.localhost",
 				SwarmMode: true,
 			}
+
 			actual := provider.getFrontendName(dData, 0)
-			if actual != test.expected {
-				t.Errorf("expected %q, got %q", test.expected, actual)
-			}
+			assert.Equal(t, test.expected, actual)
 		})
 	}
 }
@@ -588,8 +554,11 @@ func TestSwarmGetFrontendRule(t *testing.T) {
 			networks: map[string]*docker.NetworkResource{},
 		},
 		{
-			service:  swarmService(serviceName("bar")),
-			expected: "Host:bar.docker.localhost",
+			service: swarmService(serviceName("foo"),
+				serviceLabels(map[string]string{
+					label.TraefikDomain: "traefik.localhost",
+				})),
+			expected: "Host:foo.traefik.localhost",
 			networks: map[string]*docker.NetworkResource{},
 		},
 		{
@@ -612,15 +581,17 @@ func TestSwarmGetFrontendRule(t *testing.T) {
 		test := test
 		t.Run(strconv.Itoa(serviceID), func(t *testing.T) {
 			t.Parallel()
+
 			dData := parseService(test.service, test.networks)
+			segmentProperties := label.ExtractTraefikLabels(dData.Labels)
+
 			provider := &Provider{
 				Domain:    "docker.localhost",
 				SwarmMode: true,
 			}
-			actual := provider.getFrontendRule(dData)
-			if actual != test.expected {
-				t.Errorf("expected %q, got %q", test.expected, actual)
-			}
+
+			actual := provider.getFrontendRule(dData, segmentProperties[""])
+			assert.Equal(t, test.expected, actual)
 		})
 	}
 }
@@ -654,11 +625,13 @@ func TestSwarmGetBackendName(t *testing.T) {
 		test := test
 		t.Run(strconv.Itoa(serviceID), func(t *testing.T) {
 			t.Parallel()
+
 			dData := parseService(test.service, test.networks)
+			segmentProperties := label.ExtractTraefikLabels(dData.Labels)
+			dData.SegmentLabels = segmentProperties[""]
+
 			actual := getBackendName(dData)
-			if actual != test.expected {
-				t.Errorf("expected %q, got %q", test.expected, actual)
-			}
+			assert.Equal(t, test.expected, actual)
 		})
 	}
 }
@@ -713,14 +686,17 @@ func TestSwarmGetIPAddress(t *testing.T) {
 		test := test
 		t.Run(strconv.Itoa(serviceID), func(t *testing.T) {
 			t.Parallel()
-			dData := parseService(test.service, test.networks)
+
 			provider := &Provider{
 				SwarmMode: true,
 			}
+
+			dData := parseService(test.service, test.networks)
+			segmentProperties := label.ExtractTraefikLabels(dData.Labels)
+			dData.SegmentLabels = segmentProperties[""]
+
 			actual := provider.getIPAddress(dData)
-			if actual != test.expected {
-				t.Errorf("expected %q, got %q", test.expected, actual)
-			}
+			assert.Equal(t, test.expected, actual)
 		})
 	}
 }
@@ -747,11 +723,13 @@ func TestSwarmGetPort(t *testing.T) {
 		test := test
 		t.Run(strconv.Itoa(serviceID), func(t *testing.T) {
 			t.Parallel()
+
 			dData := parseService(test.service, test.networks)
+			segmentProperties := label.ExtractTraefikLabels(dData.Labels)
+			dData.SegmentLabels = segmentProperties[""]
+
 			actual := getPort(dData)
-			if actual != test.expected {
-				t.Errorf("expected %q, got %q", test.expected, actual)
-			}
+			assert.Equal(t, test.expected, actual)
 		})
 	}
 }

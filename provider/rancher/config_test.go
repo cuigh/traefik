@@ -56,17 +56,18 @@ func TestProviderBuildConfiguration(t *testing.T) {
 						label.TraefikBackendBufferingMemRequestBodyBytes:     "2097152",
 						label.TraefikBackendBufferingRetryExpression:         "IsNetworkError() && Attempts() <= 2",
 
-						label.TraefikFrontendAuthBasic:            "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/,test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
-						label.TraefikFrontendEntryPoints:          "http,https",
-						label.TraefikFrontendPassHostHeader:       "true",
-						label.TraefikFrontendPassTLSCert:          "true",
-						label.TraefikFrontendPriority:             "666",
-						label.TraefikFrontendRedirectEntryPoint:   "https",
-						label.TraefikFrontendRedirectRegex:        "nope",
-						label.TraefikFrontendRedirectReplacement:  "nope",
-						label.TraefikFrontendRedirectPermanent:    "true",
-						label.TraefikFrontendRule:                 "Host:traefik.io",
-						label.TraefikFrontendWhitelistSourceRange: "10.10.10.10",
+						label.TraefikFrontendAuthBasic:                 "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/,test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
+						label.TraefikFrontendEntryPoints:               "http,https",
+						label.TraefikFrontendPassHostHeader:            "true",
+						label.TraefikFrontendPassTLSCert:               "true",
+						label.TraefikFrontendPriority:                  "666",
+						label.TraefikFrontendRedirectEntryPoint:        "https",
+						label.TraefikFrontendRedirectRegex:             "nope",
+						label.TraefikFrontendRedirectReplacement:       "nope",
+						label.TraefikFrontendRedirectPermanent:         "true",
+						label.TraefikFrontendRule:                      "Host:traefik.io",
+						label.TraefikFrontendWhiteListSourceRange:      "10.10.10.10",
+						label.TraefikFrontendWhiteListUseXForwardedFor: "true",
 
 						label.TraefikFrontendRequestHeaders:          "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
 						label.TraefikFrontendResponseHeaders:         "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
@@ -128,8 +129,11 @@ func TestProviderBuildConfiguration(t *testing.T) {
 						"test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
 						"test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
 					},
-					WhitelistSourceRange: []string{
-						"10.10.10.10",
+					WhiteList: &types.WhiteList{
+						SourceRange: []string{
+							"10.10.10.10",
+						},
+						UseXForwardedFor: true,
 					},
 					Headers: &types.Headers{
 						CustomRequestHeaders: map[string]string{
@@ -175,12 +179,12 @@ func TestProviderBuildConfiguration(t *testing.T) {
 						"foo": {
 							Status:  []string{"404"},
 							Query:   "foo_query",
-							Backend: "foobar",
+							Backend: "backend-foobar",
 						},
 						"bar": {
 							Status:  []string{"500", "600"},
 							Query:   "bar_query",
-							Backend: "foobar",
+							Backend: "backend-foobar",
 						},
 					},
 					RateLimit: &types.RateLimit{
@@ -248,6 +252,173 @@ func TestProviderBuildConfiguration(t *testing.T) {
 			},
 		},
 		{
+			desc: "when all segment labels are set",
+			services: []rancherData{
+				{
+					Labels: map[string]string{
+						label.Prefix + "sauternes." + label.SuffixPort:     "666",
+						label.Prefix + "sauternes." + label.SuffixProtocol: "https",
+						label.Prefix + "sauternes." + label.SuffixWeight:   "12",
+
+						label.Prefix + "sauternes." + label.SuffixFrontendRule:                      "Host:traefik.wtf",
+						label.Prefix + "sauternes." + label.SuffixFrontendAuthBasic:                 "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/,test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
+						label.Prefix + "sauternes." + label.SuffixFrontendEntryPoints:               "http,https",
+						label.Prefix + "sauternes." + label.SuffixFrontendPassHostHeader:            "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendPassTLSCert:               "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendPriority:                  "666",
+						label.Prefix + "sauternes." + label.SuffixFrontendRedirectEntryPoint:        "https",
+						label.Prefix + "sauternes." + label.SuffixFrontendRedirectRegex:             "nope",
+						label.Prefix + "sauternes." + label.SuffixFrontendRedirectReplacement:       "nope",
+						label.Prefix + "sauternes." + label.SuffixFrontendRedirectPermanent:         "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendWhiteListSourceRange:      "10.10.10.10",
+						label.Prefix + "sauternes." + label.SuffixFrontendWhiteListUseXForwardedFor: "true",
+
+						label.Prefix + "sauternes." + label.SuffixFrontendRequestHeaders:                 "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
+						label.Prefix + "sauternes." + label.SuffixFrontendResponseHeaders:                "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersSSLProxyHeaders:         "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersAllowedHosts:            "foo,bar,bor",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersHostsProxyHeaders:       "foo,bar,bor",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersSSLHost:                 "foo",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersCustomFrameOptionsValue: "foo",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersContentSecurityPolicy:   "foo",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersPublicKey:               "foo",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersReferrerPolicy:          "foo",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersCustomBrowserXSSValue:   "foo",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersSTSSeconds:              "666",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersSSLRedirect:             "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersSSLTemporaryRedirect:    "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersSTSIncludeSubdomains:    "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersSTSPreload:              "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersForceSTSHeader:          "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersFrameDeny:               "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersContentTypeNosniff:      "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersBrowserXSSFilter:        "true",
+						label.Prefix + "sauternes." + label.SuffixFrontendHeadersIsDevelopment:           "true",
+
+						label.Prefix + "sauternes." + label.BaseFrontendErrorPage + "foo." + label.SuffixErrorPageStatus:  "404",
+						label.Prefix + "sauternes." + label.BaseFrontendErrorPage + "foo." + label.SuffixErrorPageBackend: "foobar",
+						label.Prefix + "sauternes." + label.BaseFrontendErrorPage + "foo." + label.SuffixErrorPageQuery:   "foo_query",
+						label.Prefix + "sauternes." + label.BaseFrontendErrorPage + "bar." + label.SuffixErrorPageStatus:  "500,600",
+						label.Prefix + "sauternes." + label.BaseFrontendErrorPage + "bar." + label.SuffixErrorPageBackend: "foobar",
+						label.Prefix + "sauternes." + label.BaseFrontendErrorPage + "bar." + label.SuffixErrorPageQuery:   "bar_query",
+
+						label.Prefix + "sauternes." + label.SuffixFrontendRateLimitExtractorFunc:                          "client.ip",
+						label.Prefix + "sauternes." + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitPeriod:  "6",
+						label.Prefix + "sauternes." + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitAverage: "12",
+						label.Prefix + "sauternes." + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitBurst:   "18",
+						label.Prefix + "sauternes." + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitPeriod:  "3",
+						label.Prefix + "sauternes." + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitAverage: "6",
+						label.Prefix + "sauternes." + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitBurst:   "9",
+					},
+					Health:     "healthy",
+					Containers: []string{"10.0.0.1", "10.0.0.2"},
+				},
+			},
+			expectedFrontends: map[string]*types.Frontend{
+				"frontend-sauternes": {
+					EntryPoints: []string{"http", "https"},
+					Backend:     "backend-sauternes",
+					Routes: map[string]types.Route{
+						"route-frontend-sauternes": {
+							Rule: "Host:traefik.wtf",
+						},
+					},
+					PassHostHeader: true,
+					PassTLSCert:    true,
+					Priority:       666,
+					BasicAuth: []string{
+						"test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
+						"test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
+					},
+					WhiteList: &types.WhiteList{
+						SourceRange: []string{
+							"10.10.10.10",
+						},
+						UseXForwardedFor: true,
+					},
+					Headers: &types.Headers{
+						CustomRequestHeaders: map[string]string{
+							"Access-Control-Allow-Methods": "POST,GET,OPTIONS",
+							"Content-Type":                 "application/json; charset=utf-8",
+						},
+						CustomResponseHeaders: map[string]string{
+							"Access-Control-Allow-Methods": "POST,GET,OPTIONS",
+							"Content-Type":                 "application/json; charset=utf-8",
+						},
+						AllowedHosts:         []string{"foo", "bar", "bor"},
+						HostsProxyHeaders:    []string{"foo", "bar", "bor"},
+						SSLRedirect:          true,
+						SSLTemporaryRedirect: true,
+						SSLHost:              "foo",
+						SSLProxyHeaders: map[string]string{
+							"Access-Control-Allow-Methods": "POST,GET,OPTIONS",
+							"Content-Type":                 "application/json; charset=utf-8",
+						},
+						STSSeconds:              666,
+						STSIncludeSubdomains:    true,
+						STSPreload:              true,
+						ForceSTSHeader:          true,
+						FrameDeny:               true,
+						CustomFrameOptionsValue: "foo",
+						ContentTypeNosniff:      true,
+						BrowserXSSFilter:        true,
+						CustomBrowserXSSValue:   "foo",
+						ContentSecurityPolicy:   "foo",
+						PublicKey:               "foo",
+						ReferrerPolicy:          "foo",
+						IsDevelopment:           true,
+					},
+					Errors: map[string]*types.ErrorPage{
+						"bar": {
+							Status:  []string{"500", "600"},
+							Backend: "backend-foobar",
+							Query:   "bar_query",
+						},
+						"foo": {
+							Status:  []string{"404"},
+							Backend: "backend-foobar",
+							Query:   "foo_query",
+						},
+					},
+					RateLimit: &types.RateLimit{
+						ExtractorFunc: "client.ip",
+						RateSet: map[string]*types.Rate{
+							"foo": {
+								Period:  flaeg.Duration(6 * time.Second),
+								Average: 12,
+								Burst:   18,
+							},
+							"bar": {
+								Period:  flaeg.Duration(3 * time.Second),
+								Average: 6,
+								Burst:   9,
+							},
+						},
+					},
+					Redirect: &types.Redirect{
+						EntryPoint:  "https",
+						Regex:       "",
+						Replacement: "",
+						Permanent:   true,
+					},
+				},
+			},
+			expectedBackends: map[string]*types.Backend{
+				"backend-sauternes": {
+					Servers: map[string]types.Server{
+						"server-0": {
+							URL:    "https://10.0.0.1:666",
+							Weight: 12,
+						},
+						"server-1": {
+							URL:    "https://10.0.0.2:666",
+							Weight: 12,
+						},
+					},
+				},
+			},
+		},
+		{
 			desc: "with services",
 			services: []rancherData{
 				{
@@ -283,7 +454,7 @@ func TestProviderBuildConfiguration(t *testing.T) {
 					Servers: map[string]types.Server{
 						"server-0": {
 							URL:    "http://127.0.0.1:80",
-							Weight: 0,
+							Weight: label.DefaultWeight,
 						},
 					},
 					CircuitBreaker: nil,
@@ -294,7 +465,6 @@ func TestProviderBuildConfiguration(t *testing.T) {
 
 	for _, test := range testCases {
 		test := test
-
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
@@ -528,6 +698,9 @@ func TestProviderGetFrontendName(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
+			segmentProperties := label.ExtractTraefikLabels(test.service.Labels)
+			test.service.SegmentLabels = segmentProperties[""]
+
 			actual := provider.getFrontendName(test.service)
 			assert.Equal(t, test.expected, actual)
 		})
@@ -550,6 +723,16 @@ func TestProviderGetFrontendRule(t *testing.T) {
 			expected: "Host:foo.rancher.localhost",
 		},
 		{
+			desc: "with domain label",
+			service: rancherData{
+				Name: "test-service",
+				Labels: map[string]string{
+					label.TraefikDomain: "traefik.localhost",
+				},
+			},
+			expected: "Host:test-service.traefik.localhost",
+		},
+		{
 			desc: "host with /",
 			service: rancherData{
 				Name: "foo/bar",
@@ -566,26 +749,6 @@ func TestProviderGetFrontendRule(t *testing.T) {
 			},
 			expected: "Host:foo.bar.com",
 		},
-		{
-			desc: "with Path label",
-			service: rancherData{
-				Name: "test-service",
-				Labels: map[string]string{
-					label.TraefikFrontendRule: "Path:/test",
-				},
-			},
-			expected: "Path:/test",
-		},
-		{
-			desc: "with PathPrefix label",
-			service: rancherData{
-				Name: "test-service",
-				Labels: map[string]string{
-					label.TraefikFrontendRule: "PathPrefix:/test2",
-				},
-			},
-			expected: "PathPrefix:/test2",
-		},
 	}
 
 	for _, test := range testCases {
@@ -593,7 +756,10 @@ func TestProviderGetFrontendRule(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
-			actual := provider.getFrontendRule(test.service)
+			segmentProperties := label.ExtractTraefikLabels(test.service.Labels)
+			test.service.SegmentLabels = segmentProperties[""]
+
+			actual := provider.getFrontendRule(test.service.Name, test.service.SegmentLabels)
 			assert.Equal(t, test.expected, actual)
 		})
 	}
@@ -630,293 +796,10 @@ func TestGetBackendName(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
+			segmentProperties := label.ExtractTraefikLabels(test.service.Labels)
+			test.service.SegmentLabels = segmentProperties[""]
+
 			actual := getBackendName(test.service)
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetCircuitBreaker(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.CircuitBreaker
-	}{
-		{
-			desc: "should return nil when no CB label",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return a struct when CB label is set",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendCircuitBreakerExpression: "NetworkErrorRatio() > 0.5",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.CircuitBreaker{
-				Expression: "NetworkErrorRatio() > 0.5",
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getCircuitBreaker(test.service)
-
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetLoadBalancer(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.LoadBalancer
-	}{
-		{
-			desc: "should return nil when no LB labels",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return a struct when labels are set",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendLoadBalancerMethod:               "drr",
-					label.TraefikBackendLoadBalancerSticky:               "true",
-					label.TraefikBackendLoadBalancerStickiness:           "true",
-					label.TraefikBackendLoadBalancerStickinessCookieName: "foo",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.LoadBalancer{
-				Method: "drr",
-				Sticky: true,
-				Stickiness: &types.Stickiness{
-					CookieName: "foo",
-				},
-			},
-		},
-		{
-			desc: "should return a nil Stickiness when Stickiness is not set",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendLoadBalancerMethod:               "drr",
-					label.TraefikBackendLoadBalancerSticky:               "true",
-					label.TraefikBackendLoadBalancerStickinessCookieName: "foo",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.LoadBalancer{
-				Method:     "drr",
-				Sticky:     true,
-				Stickiness: nil,
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getLoadBalancer(test.service)
-
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetMaxConn(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.MaxConn
-	}{
-		{
-			desc: "should return nil when no max conn labels",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return nil when no amount label",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendMaxConnExtractorFunc: "client.ip",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return default when no empty extractorFunc label",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendMaxConnExtractorFunc: "",
-					label.TraefikBackendMaxConnAmount:        "666",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.MaxConn{
-				ExtractorFunc: "request.host",
-				Amount:        666,
-			},
-		},
-		{
-			desc: "should return a struct when max conn labels are set",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendMaxConnExtractorFunc: "client.ip",
-					label.TraefikBackendMaxConnAmount:        "666",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.MaxConn{
-				ExtractorFunc: "client.ip",
-				Amount:        666,
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getMaxConn(test.service)
-
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetHealthCheck(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.HealthCheck
-	}{
-		{
-			desc: "should return nil when no health check labels",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return nil when no health check Path label",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendHealthCheckPort:     "80",
-					label.TraefikBackendHealthCheckInterval: "6",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return a struct when health check labels are set",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendHealthCheckPath:     "/health",
-					label.TraefikBackendHealthCheckPort:     "80",
-					label.TraefikBackendHealthCheckInterval: "6",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.HealthCheck{
-				Path:     "/health",
-				Port:     80,
-				Interval: "6",
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getHealthCheck(test.service)
-
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetBuffering(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.Buffering
-	}{
-		{
-			desc: "should return nil when no buffering labels",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return a struct when buffering labels are set",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikBackendBufferingMaxResponseBodyBytes: "10485760",
-					label.TraefikBackendBufferingMemResponseBodyBytes: "2097152",
-					label.TraefikBackendBufferingMaxRequestBodyBytes:  "10485760",
-					label.TraefikBackendBufferingMemRequestBodyBytes:  "2097152",
-					label.TraefikBackendBufferingRetryExpression:      "IsNetworkError() && Attempts() <= 2",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.Buffering{
-				MaxResponseBodyBytes: 10485760,
-				MemResponseBodyBytes: 2097152,
-				MaxRequestBodyBytes:  10485760,
-				MemRequestBodyBytes:  2097152,
-				RetryExpression:      "IsNetworkError() && Attempts() <= 2",
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getBuffering(test.service)
-
 			assert.Equal(t, test.expected, actual)
 		})
 	}
@@ -950,6 +833,18 @@ func TestGetServers(t *testing.T) {
 			expected: nil,
 		},
 		{
+			desc: "should return nil when no server IPs",
+			service: rancherData{
+				Labels: map[string]string{
+					label.TraefikWeight: "7",
+				},
+				Containers: []string{""},
+				Health:     "healthy",
+				State:      "active",
+			},
+			expected: nil,
+		},
+		{
 			desc: "should use default weight when invalid weight value",
 			service: rancherData{
 				Labels: map[string]string{
@@ -962,7 +857,7 @@ func TestGetServers(t *testing.T) {
 			expected: map[string]types.Server{
 				"server-0": {
 					URL:    "http://10.10.10.0:",
-					Weight: 0,
+					Weight: label.DefaultWeight,
 				},
 			},
 		},
@@ -994,280 +889,10 @@ func TestGetServers(t *testing.T) {
 		t.Run(test.desc, func(t *testing.T) {
 			t.Parallel()
 
+			segmentProperties := label.ExtractTraefikLabels(test.service.Labels)
+			test.service.SegmentLabels = segmentProperties[""]
+
 			actual := getServers(test.service)
-
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetRedirect(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.Redirect
-	}{
-
-		{
-			desc: "should return nil when no redirect labels",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should use only entry point tag when mix regex redirect and entry point redirect",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikFrontendRedirectEntryPoint:  "https",
-					label.TraefikFrontendRedirectRegex:       "(.*)",
-					label.TraefikFrontendRedirectReplacement: "$1",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.Redirect{
-				EntryPoint: "https",
-			},
-		},
-		{
-			desc: "should return a struct when entry point redirect label",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikFrontendRedirectEntryPoint: "https",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.Redirect{
-				EntryPoint: "https",
-			},
-		},
-		{
-			desc: "should return a struct when entry point redirect label (permanent)",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikFrontendRedirectEntryPoint: "https",
-					label.TraefikFrontendRedirectPermanent:  "true",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.Redirect{
-				EntryPoint: "https",
-				Permanent:  true,
-			},
-		},
-		{
-			desc: "should return a struct when regex redirect labels",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikFrontendRedirectRegex:       "(.*)",
-					label.TraefikFrontendRedirectReplacement: "$1",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.Redirect{
-				Regex:       "(.*)",
-				Replacement: "$1",
-			},
-		},
-		{
-			desc: "should return a struct when regex redirect labels (permanent)",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikFrontendRedirectRegex:       "(.*)",
-					label.TraefikFrontendRedirectReplacement: "$1",
-					label.TraefikFrontendRedirectPermanent:   "true",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.Redirect{
-				Regex:       "(.*)",
-				Replacement: "$1",
-				Permanent:   true,
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getRedirect(test.service)
-
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetRateLimit(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.RateLimit
-	}{
-		{
-			desc: "should return nil when no rate limit labels",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return a struct when rate limit labels are defined",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikFrontendRateLimitExtractorFunc:                                        "client.ip",
-					label.Prefix + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitPeriod:  "6",
-					label.Prefix + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitAverage: "12",
-					label.Prefix + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitBurst:   "18",
-					label.Prefix + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitPeriod:  "3",
-					label.Prefix + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitAverage: "6",
-					label.Prefix + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitBurst:   "9",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.RateLimit{
-				ExtractorFunc: "client.ip",
-				RateSet: map[string]*types.Rate{
-					"foo": {
-						Period:  flaeg.Duration(6 * time.Second),
-						Average: 12,
-						Burst:   18,
-					},
-					"bar": {
-						Period:  flaeg.Duration(3 * time.Second),
-						Average: 6,
-						Burst:   9,
-					},
-				},
-			},
-		},
-		{
-			desc: "should return nil when ExtractorFunc is missing",
-			service: rancherData{
-				Labels: map[string]string{
-					label.Prefix + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitPeriod:  "6",
-					label.Prefix + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitAverage: "12",
-					label.Prefix + label.BaseFrontendRateLimit + "foo." + label.SuffixRateLimitBurst:   "18",
-					label.Prefix + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitPeriod:  "3",
-					label.Prefix + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitAverage: "6",
-					label.Prefix + label.BaseFrontendRateLimit + "bar." + label.SuffixRateLimitBurst:   "9",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getRateLimit(test.service)
-
-			assert.Equal(t, test.expected, actual)
-		})
-	}
-}
-
-func TestGetHeaders(t *testing.T) {
-	testCases := []struct {
-		desc     string
-		service  rancherData
-		expected *types.Headers
-	}{
-		{
-			desc: "should return nil when no custom headers options are set",
-			service: rancherData{
-				Labels: map[string]string{},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: nil,
-		},
-		{
-			desc: "should return a struct when all custom headers options are set",
-			service: rancherData{
-				Labels: map[string]string{
-					label.TraefikFrontendRequestHeaders:          "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
-					label.TraefikFrontendResponseHeaders:         "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
-					label.TraefikFrontendSSLProxyHeaders:         "Access-Control-Allow-Methods:POST,GET,OPTIONS || Content-type: application/json; charset=utf-8",
-					label.TraefikFrontendAllowedHosts:            "foo,bar,bor",
-					label.TraefikFrontendHostsProxyHeaders:       "foo,bar,bor",
-					label.TraefikFrontendSSLHost:                 "foo",
-					label.TraefikFrontendCustomFrameOptionsValue: "foo",
-					label.TraefikFrontendContentSecurityPolicy:   "foo",
-					label.TraefikFrontendPublicKey:               "foo",
-					label.TraefikFrontendReferrerPolicy:          "foo",
-					label.TraefikFrontendCustomBrowserXSSValue:   "foo",
-					label.TraefikFrontendSTSSeconds:              "666",
-					label.TraefikFrontendSSLRedirect:             "true",
-					label.TraefikFrontendSSLTemporaryRedirect:    "true",
-					label.TraefikFrontendSTSIncludeSubdomains:    "true",
-					label.TraefikFrontendSTSPreload:              "true",
-					label.TraefikFrontendForceSTSHeader:          "true",
-					label.TraefikFrontendFrameDeny:               "true",
-					label.TraefikFrontendContentTypeNosniff:      "true",
-					label.TraefikFrontendBrowserXSSFilter:        "true",
-					label.TraefikFrontendIsDevelopment:           "true",
-				},
-				Health: "healthy",
-				State:  "active",
-			},
-			expected: &types.Headers{
-				CustomRequestHeaders: map[string]string{
-					"Access-Control-Allow-Methods": "POST,GET,OPTIONS",
-					"Content-Type":                 "application/json; charset=utf-8",
-				},
-				CustomResponseHeaders: map[string]string{
-					"Access-Control-Allow-Methods": "POST,GET,OPTIONS",
-					"Content-Type":                 "application/json; charset=utf-8",
-				},
-				SSLProxyHeaders: map[string]string{
-					"Access-Control-Allow-Methods": "POST,GET,OPTIONS",
-					"Content-Type":                 "application/json; charset=utf-8",
-				},
-				AllowedHosts:            []string{"foo", "bar", "bor"},
-				HostsProxyHeaders:       []string{"foo", "bar", "bor"},
-				SSLHost:                 "foo",
-				CustomFrameOptionsValue: "foo",
-				ContentSecurityPolicy:   "foo",
-				PublicKey:               "foo",
-				ReferrerPolicy:          "foo",
-				CustomBrowserXSSValue:   "foo",
-				STSSeconds:              666,
-				SSLRedirect:             true,
-				SSLTemporaryRedirect:    true,
-				STSIncludeSubdomains:    true,
-				STSPreload:              true,
-				ForceSTSHeader:          true,
-				FrameDeny:               true,
-				ContentTypeNosniff:      true,
-				BrowserXSSFilter:        true,
-				IsDevelopment:           true,
-			},
-		},
-	}
-
-	for _, test := range testCases {
-		test := test
-		t.Run(test.desc, func(t *testing.T) {
-			t.Parallel()
-
-			actual := getHeaders(test.service)
-
 			assert.Equal(t, test.expected, actual)
 		})
 	}

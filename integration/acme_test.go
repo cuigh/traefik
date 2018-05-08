@@ -44,7 +44,7 @@ func (s *AcmeSuite) SetUpSuite(c *check.C) {
 	s.boulderIP = s.composeProject.Container(c, "boulder").NetworkSettings.IPAddress
 
 	// wait for boulder
-	err := try.GetRequest("http://"+s.boulderIP+":4000/directory", 120*time.Second, try.StatusCodeIs(http.StatusOK))
+	err := try.GetRequest("http://"+s.boulderIP+":4001/directory", 120*time.Second, try.StatusCodeIs(http.StatusOK))
 	c.Assert(err, checker.IsNil)
 }
 
@@ -195,6 +195,8 @@ func (s *AcmeSuite) retrieveAcmeCertificate(c *check.C, testCase AcmeTestCase) {
 	err := cmd.Start()
 	c.Assert(err, checker.IsNil)
 	defer cmd.Process.Kill()
+	// A real file is needed to have the right mode on acme.json file
+	defer os.Remove("/tmp/acme.json")
 
 	backend := startTestServer("9010", http.StatusOK)
 	defer backend.Close()

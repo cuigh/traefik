@@ -32,8 +32,8 @@ func TestProviderBuildConfiguration(t *testing.T) {
 					withPair("routes/route.with.dot/rule", "Host:test.localhost")),
 				backend("backend.with.dot.too",
 					withPair("servers/server.with.dot/url", "http://172.17.0.2:80"),
-					withPair("servers/server.with.dot/weight", "0"),
-					withPair("servers/server.with.dot.without.url/weight", "0")),
+					withPair("servers/server.with.dot/weight", strconv.Itoa(label.DefaultWeight)),
+					withPair("servers/server.with.dot.without.url/weight", strconv.Itoa(label.DefaultWeight))),
 			),
 			expected: &types.Configuration{
 				Backends: map[string]*types.Backend{
@@ -42,7 +42,7 @@ func TestProviderBuildConfiguration(t *testing.T) {
 						Servers: map[string]types.Server{
 							"server.with.dot": {
 								URL:    "http://172.17.0.2:80",
-								Weight: 0,
+								Weight: label.DefaultWeight,
 							},
 						},
 					},
@@ -82,8 +82,8 @@ func TestProviderBuildConfiguration(t *testing.T) {
 					withPair(pathBackendBufferingMemRequestBodyBytes, "2097152"),
 					withPair(pathBackendBufferingRetryExpression, "IsNetworkError() && Attempts() <= 2"),
 					withPair("servers/server1/url", "http://172.17.0.2:80"),
-					withPair("servers/server1/weight", "0"),
-					withPair("servers/server2/weight", "0")),
+					withPair("servers/server1/weight", strconv.Itoa(label.DefaultWeight)),
+					withPair("servers/server2/weight", strconv.Itoa(label.DefaultWeight))),
 				frontend("frontend1",
 					withPair(pathFrontendBackend, "backend1"),
 					withPair(pathFrontendPriority, "6"),
@@ -91,6 +91,7 @@ func TestProviderBuildConfiguration(t *testing.T) {
 					withPair(pathFrontendPassTLSCert, "true"),
 					withPair(pathFrontendEntryPoints, "http,https"),
 					withPair(pathFrontendWhiteListSourceRange, "1.1.1.1/24, 1234:abcd::42/32"),
+					withPair(pathFrontendWhiteListUseXForwardedFor, "true"),
 					withPair(pathFrontendBasicAuth, "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/, test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0"),
 					withPair(pathFrontendRedirectEntryPoint, "https"),
 					withPair(pathFrontendRedirectRegex, "nope"),
@@ -147,7 +148,7 @@ func TestProviderBuildConfiguration(t *testing.T) {
 						Servers: map[string]types.Server{
 							"server1": {
 								URL:    "http://172.17.0.2:80",
-								Weight: 0,
+								Weight: label.DefaultWeight,
 							},
 						},
 						CircuitBreaker: &types.CircuitBreaker{
@@ -180,12 +181,15 @@ func TestProviderBuildConfiguration(t *testing.T) {
 				},
 				Frontends: map[string]*types.Frontend{
 					"frontend1": {
-						Priority:             6,
-						EntryPoints:          []string{"http", "https"},
-						Backend:              "backend1",
-						PassTLSCert:          true,
-						WhitelistSourceRange: []string{"1.1.1.1/24", "1234:abcd::42/32"},
-						BasicAuth:            []string{"test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/", "test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0"},
+						Priority:    6,
+						EntryPoints: []string{"http", "https"},
+						Backend:     "backend1",
+						PassTLSCert: true,
+						WhiteList: &types.WhiteList{
+							SourceRange:      []string{"1.1.1.1/24", "1234:abcd::42/32"},
+							UseXForwardedFor: true,
+						},
+						BasicAuth: []string{"test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/", "test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0"},
 						Redirect: &types.Redirect{
 							EntryPoint: "https",
 							Permanent:  true,
@@ -1027,6 +1031,68 @@ func TestProviderHasStickinessLabel(t *testing.T) {
 			if actual != test.expected {
 				t.Fatalf("expected %v, got %v", test.expected, actual)
 			}
+		})
+	}
+}
+
+func TestWhiteList(t *testing.T) {
+	testCases := []struct {
+		desc     string
+		rootPath string
+		kvPairs  []*store.KVPair
+		expected *types.WhiteList
+	}{
+		{
+			desc:     "should return nil when no white list labels",
+			rootPath: "traefik/frontends/foo",
+			expected: nil,
+		},
+		{
+			desc:     "should return a struct when only range",
+			rootPath: "traefik/frontends/foo",
+			kvPairs: filler("traefik",
+				frontend("foo",
+					withPair(pathFrontendWhiteListSourceRange, "10.10.10.10"))),
+			expected: &types.WhiteList{
+				SourceRange: []string{
+					"10.10.10.10",
+				},
+				UseXForwardedFor: false,
+			},
+		},
+		{
+			desc:     "should return a struct when range and UseXForwardedFor",
+			rootPath: "traefik/frontends/foo",
+			kvPairs: filler("traefik",
+				frontend("foo",
+					withPair(pathFrontendWhiteListSourceRange, "10.10.10.10"),
+					withPair(pathFrontendWhiteListUseXForwardedFor, "true"))),
+			expected: &types.WhiteList{
+				SourceRange: []string{
+					"10.10.10.10",
+				},
+				UseXForwardedFor: true,
+			},
+		},
+		{
+			desc:     "should return nil when only UseXForwardedFor",
+			rootPath: "traefik/frontends/foo",
+			kvPairs: filler("traefik",
+				frontend("foo",
+					withPair(pathFrontendWhiteListUseXForwardedFor, "true"))),
+			expected: nil,
+		},
+	}
+
+	for _, test := range testCases {
+		test := test
+		t.Run(test.desc, func(t *testing.T) {
+			t.Parallel()
+
+			p := newProviderMock(test.kvPairs)
+
+			actual := p.getWhiteList(test.rootPath)
+			assert.Equal(t, test.expected, actual)
 		})
 	}
 }
@@ -1946,7 +2012,7 @@ func TestProviderGetServers(t *testing.T) {
 			expected: map[string]types.Server{
 				"server1": {
 					URL:    "http://172.17.0.2:80",
-					Weight: 0,
+					Weight: label.DefaultWeight,
 				},
 			},
 		},
@@ -1961,7 +2027,7 @@ func TestProviderGetServers(t *testing.T) {
 			expected: map[string]types.Server{
 				"server1": {
 					URL:    "http://172.17.0.2:80",
-					Weight: 0,
+					Weight: label.DefaultWeight,
 				},
 				"server2": {
 					URL:    "http://172.17.0.3:80",

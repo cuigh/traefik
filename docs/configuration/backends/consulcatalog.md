@@ -57,7 +57,23 @@ prefix = "traefik"
 #    ca = "/etc/ssl/ca.crt"
 #    cert = "/etc/ssl/consul.crt"
 #    key = "/etc/ssl/consul.key"
-#    insecureskipverify = true
+#    insecureSkipVerify = true
+
+# Override default configuration template.
+# For advanced users :)
+#
+# Optional
+#
+# filename = "consulcatalog.tmpl"
+
+# Override template version
+# For advanced users :)
+#
+# Optional
+# - "1": previous template version (must be used only with older custom templates, see "filename")
+# - "2": current template version (must be used to force template version when "filename" is used)
+#
+# templateVersion = 2
 ```
 
 This backend will create routes matching on hostname based on the service name used in Consul.
@@ -74,7 +90,6 @@ Additional settings can be defined using Consul Catalog tags.
 | Label                                                       | Description                                                                                                                                                                                                            |
 |-------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `<prefix>.enable=false`                                     | Disable this container in Træfik.                                                                                                                                                                                      |
-| `<prefix>.port=80`                                          | Register this port. Useful when the container exposes multiples ports.                                                                                                                                                 |
 | `<prefix>.protocol=https`                                   | Override the default `http` protocol.                                                                                                                                                                                  |
 | `<prefix>.weight=10`                                        | Assign this weight to the container.                                                                                                                                                                                   |
 | `traefik.backend.buffering.maxRequestBodyBytes=0`           | See [buffering](/configuration/commons/#buffering) section.                                                                                                                                                            |
@@ -90,7 +105,6 @@ Additional settings can be defined using Consul Catalog tags.
 | `<prefix>.backend.loadbalancer.stickiness=true`             | Enable backend sticky sessions.                                                                                                                                                                                        |
 | `<prefix>.backend.loadbalancer.stickiness.cookieName=NAME`  | Manually set the cookie name for sticky sessions.                                                                                                                                                                      |
 | `<prefix>.backend.loadbalancer.sticky=true`                 | Enable backend sticky sessions. (DEPRECATED)                                                                                                                                                                           |
-| `<prefix>.backend.loadbalancer.swarm=true`                  | Use Swarm's inbuilt load balancer (only relevant under Swarm Mode).                                                                                                                                                    |
 | `<prefix>.backend.maxconn.amount=10`                        | Set a maximum number of connections to the backend.<br>Must be used in conjunction with the below label to take effect.                                                                                                |
 | `<prefix>.backend.maxconn.extractorfunc=client.ip`          | Set the function to be used against the request to determine what to limit maximum connections to the backend by.<br>Must be used in conjunction with the above label to take effect.                                  |
 | `<prefix>.frontend.auth.basic=EXPR`                         | Sets basic authentication for that frontend in CSV format: `User:Hash,User:Hash`                                                                                                                                       |
@@ -110,7 +124,8 @@ Additional settings can be defined using Consul Catalog tags.
 | `<prefix>.frontend.redirect.replacement=http://mydomain/$1` | Redirect to another URL for that frontend.<br>Must be set with `traefik.frontend.redirect.regex`.                                                                                                                      |
 | `<prefix>.frontend.redirect.permanent=true`                 | Return 301 instead of 302.                                                                                                                                                                                             |
 | `<prefix>.frontend.rule=EXPR`                               | Override the default frontend rule. Default: `Host:{{.ServiceName}}.{{.Domain}}`.                                                                                                                                      |
-| `<prefix>.frontend.whitelistSourceRange=RANGE`              | List of IP-Ranges which are allowed to access.<br>An unset or empty list allows all Source-IPs to access. If one of the Net-Specifications are invalid, the whole list is invalid and allows all Source-IPs to access. |
+| `<prefix>.frontend.whiteList.sourceRange=RANGE`             | List of IP-Ranges which are allowed to access.<br>An unset or empty list allows all Source-IPs to access. If one of the Net-Specifications are invalid, the whole list is invalid and allows all Source-IPs to access. |
+| `<prefix>.frontend.whiteList.useXForwardedFor=true`         | Use `X-Forwarded-For` header as valid source of IP for the white list.                                                                                                                                                 |
 
 ### Custom Headers
 
@@ -130,7 +145,17 @@ Additional settings can be defined using Consul Catalog tags.
 | Label                                                     | Description                                                                                                                                                                                         |
 |-----------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `<prefix>.frontend.headers.allowedHosts=EXPR`             | Provides a list of allowed hosts that requests will be processed.<br>Format: `Host1,Host2`                                                                                                          |
+| `<prefix>.frontend.headers.browserXSSFilter=true`         | Adds the X-XSS-Protection header with the value `1; mode=block`.                                                                                                                                    |
+| `<prefix>.frontend.headers.contentSecurityPolicy=VALUE`   | Adds CSP Header with the custom value.                                                                                                                                                              |
+| `<prefix>.frontend.headers.contentTypeNosniff=true`       | Adds the `X-Content-Type-Options` header with the value `nosniff`.                                                                                                                                  |
+| `<prefix>.frontend.headers.customBrowserXSSValue=VALUE`   | Set custom value for X-XSS-Protection header. This overrides the BrowserXssFilter option.                                                                                                           |
+| `<prefix>.frontend.headers.customFrameOptionsValue=VALUE` | Overrides the `X-Frame-Options` header with the custom value.                                                                                                                                       |
+| `<prefix>.frontend.headers.forceSTSHeader=false`          | Adds the STS  header to non-SSL requests.                                                                                                                                                           |
+| `<prefix>.frontend.headers.frameDeny=false`               | Adds the `X-Frame-Options` header with the value of `DENY`.                                                                                                                                         |
 | `<prefix>.frontend.headers.hostsProxyHeaders=EXPR`        | Provides a list of headers that the proxied hostname may be stored.<br>Format: `HEADER1,HEADER2`                                                                                                    |
+| `<prefix>.frontend.headers.isDevelopment=false`           | This will cause the `AllowedHosts`, `SSLRedirect`, and `STSSeconds`/`STSIncludeSubdomains` options to be ignored during development.<br>When deploying to production, be sure to set this to false. |
+| `<prefix>.frontend.headers.publicKey=VALUE`               | Adds pinned HTST public key header.                                                                                                                                                                 |
+| `<prefix>.frontend.headers.referrerPolicy=VALUE`          | Adds referrer policy  header.                                                                                                                                                                       |
 | `<prefix>.frontend.headers.SSLRedirect=true`              | Forces the frontend to redirect to SSL if a non-SSL request is sent.                                                                                                                                |
 | `<prefix>.frontend.headers.SSLTemporaryRedirect=true`     | Forces the frontend to redirect to SSL if a non-SSL request is sent, but by sending a 302 instead of a 301.                                                                                         |
 | `<prefix>.frontend.headers.SSLHost=HOST`                  | This setting configures the hostname that redirects will be based on. Default is "", which is the same host as the request.                                                                         |
@@ -138,16 +163,6 @@ Additional settings can be defined using Consul Catalog tags.
 | `<prefix>.frontend.headers.STSSeconds=315360000`          | Sets the max-age of the STS header.                                                                                                                                                                 |
 | `<prefix>.frontend.headers.STSIncludeSubdomains=true`     | Adds the `IncludeSubdomains` section of the STS  header.                                                                                                                                            |
 | `<prefix>.frontend.headers.STSPreload=true`               | Adds the preload flag to the STS  header.                                                                                                                                                           |
-| `<prefix>.frontend.headers.forceSTSHeader=false`          | Adds the STS  header to non-SSL requests.                                                                                                                                                           |
-| `<prefix>.frontend.headers.frameDeny=false`               | Adds the `X-Frame-Options` header with the value of `DENY`.                                                                                                                                         |
-| `<prefix>.frontend.headers.customFrameOptionsValue=VALUE` | Overrides the `X-Frame-Options` header with the custom value.                                                                                                                                       |
-| `<prefix>.frontend.headers.contentTypeNosniff=true`       | Adds the `X-Content-Type-Options` header with the value `nosniff`.                                                                                                                                  |
-| `<prefix>.frontend.headers.browserXSSFilter=true`         | Adds the X-XSS-Protection header with the value `1; mode=block`.                                                                                                                                    |
-| `<prefix>.frontend.headers.customBrowserXSSValue=VALUE`   | Set custom value for X-XSS-Protection header. This overrides the BrowserXssFilter option.                                                                                                           |
-| `<prefix>.frontend.headers.contentSecurityPolicy=VALUE`   | Adds CSP Header with the custom value.                                                                                                                                                              |
-| `<prefix>.frontend.headers.publicKey=VALUE`               | Adds pinned HTST public key header.                                                                                                                                                                 |
-| `<prefix>.frontend.headers.referrerPolicy=VALUE`          | Adds referrer policy  header.                                                                                                                                                                       |
-| `<prefix>.frontend.headers.isDevelopment=false`           | This will cause the `AllowedHosts`, `SSLRedirect`, and `STSSeconds`/`STSIncludeSubdomains` options to be ignored during development.<br>When deploying to production, be sure to set this to false. |
 
 ### Examples
 

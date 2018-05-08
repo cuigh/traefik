@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/containous/flaeg"
+	"github.com/containous/traefik/provider/label"
 	"github.com/containous/traefik/tls"
 	"github.com/containous/traefik/types"
 	"github.com/stretchr/testify/assert"
@@ -202,9 +203,13 @@ func basicAuth(auth ...string) func(*types.Frontend) {
 	}
 }
 
-func whitelistSourceRange(ranges ...string) func(*types.Frontend) {
+func whiteList(useXFF bool, ranges ...string) func(*types.Frontend) {
 	return func(f *types.Frontend) {
-		f.WhitelistSourceRange = ranges
+		if f.WhiteList == nil {
+			f.WhiteList = &types.WhiteList{}
+		}
+		f.WhiteList.UseXForwardedFor = useXFF
+		f.WhiteList.SourceRange = ranges
 	}
 }
 
@@ -444,11 +449,11 @@ func sampleConfiguration() *types.Configuration {
 				Servers: map[string]types.Server{
 					"http://10.10.0.1:8080": {
 						URL:    "http://10.10.0.1:8080",
-						Weight: 1,
+						Weight: label.DefaultWeight,
 					},
 					"http://10.21.0.1:8080": {
 						URL:    "http://10.21.0.1:8080",
-						Weight: 1,
+						Weight: label.DefaultWeight,
 					},
 				},
 				CircuitBreaker: nil,
@@ -460,7 +465,7 @@ func sampleConfiguration() *types.Configuration {
 				Servers: map[string]types.Server{
 					"https://example.com": {
 						URL:    "https://example.com",
-						Weight: 1,
+						Weight: label.DefaultWeight,
 					},
 				},
 				CircuitBreaker: nil,
@@ -472,11 +477,11 @@ func sampleConfiguration() *types.Configuration {
 				Servers: map[string]types.Server{
 					"https://10.15.0.1:8443": {
 						URL:    "https://10.15.0.1:8443",
-						Weight: 1,
+						Weight: label.DefaultWeight,
 					},
 					"https://10.15.0.2:9443": {
 						URL:    "https://10.15.0.2:9443",
-						Weight: 1,
+						Weight: label.DefaultWeight,
 					},
 				},
 				CircuitBreaker: nil,

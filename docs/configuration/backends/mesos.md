@@ -34,6 +34,13 @@ watch = true
 #
 domain = "mesos.localhost"
 
+# Expose Mesos apps by default in Traefik.
+#
+# Optional
+# Default: true
+#
+# exposedByDefault = false
+
 # Override default configuration template.
 # For advanced users :)
 #
@@ -41,46 +48,48 @@ domain = "mesos.localhost"
 #
 # filename = "mesos.tmpl"
 
-# Expose Mesos apps by default in Traefik.
+# Override template version
+# For advanced users :)
 #
 # Optional
-# Default: true
+# - "1": previous template version (must be used only with older custom templates, see "filename")
+# - "2": current template version (must be used to force template version when "filename" is used)
 #
-# ExposedByDefault = false
+# templateVersion = 2
 
 # TLS client configuration. https://golang.org/pkg/crypto/tls/#Config
 #
 # Optional
 #
 # [mesos.TLS]
-# InsecureSkipVerify = true
+# insecureSkipVerify = true
 
 # Zookeeper timeout (in seconds).
 #
 # Optional
 # Default: 30
 #
-# ZkDetectionTimeout = 30
+# zkDetectionTimeout = 30
 
 # Polling interval (in seconds).
 #
 # Optional
 # Default: 30
 #
-# RefreshSeconds = 30
+# refreshSeconds = 30
 
 # IP sources (e.g. host, docker, mesos, netinfo).
 #
 # Optional
 #
-# IPSources = "host"
+# ipSources = "host"
 
 # HTTP Timeout (in seconds).
 #
 # Optional
 # Default: 30
 #
-# StateTimeoutSecond = "30"
+# stateTimeoutSecond = "30"
 
 # Convert groups to subdomains.
 # Default behavior: /foo/bar/myapp => foo-bar-myapp.{defaultDomain}
@@ -90,14 +99,16 @@ domain = "mesos.localhost"
 # Default: false
 #
 # groupsAsSubDomains = true
+
 ```
 
-## Labels: overriding default behaviour
+## Labels: overriding default behavior
 
-The following labels can be defined on Mesos tasks. They adjust the behaviour for the entire application.
+The following labels can be defined on Mesos tasks. They adjust the behavior for the entire application.
 
 | Label                                                      | Description                                                                                                                                                                                                            |
 |------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `traefik.domain`                                           | Default domain used for frontend rules.                                                                                                                                                                                |
 | `traefik.enable=false`                                     | Disable this container in Træfik                                                                                                                                                                                       |
 | `traefik.port=80`                                          | Register this port. Useful when the container exposes multiples ports.                                                                                                                                                 |
 | `traefik.portIndex=1`                                      | Register port by index in the application's ports array. Useful when the application exposes multiple ports.                                                                                                           |
@@ -116,7 +127,6 @@ The following labels can be defined on Mesos tasks. They adjust the behaviour fo
 | `traefik.backend.loadbalancer.method=drr`                  | Override the default `wrr` load balancer algorithm                                                                                                                                                                     |
 | `traefik.backend.loadbalancer.stickiness=true`             | Enable backend sticky sessions                                                                                                                                                                                         |
 | `traefik.backend.loadbalancer.stickiness.cookieName=NAME`  | Manually set the cookie name for sticky sessions                                                                                                                                                                       |
-| `traefik.backend.loadbalancer.swarm=true`                  | Use Swarm's inbuilt load balancer (only relevant under Swarm Mode).                                                                                                                                                    |
 | `traefik.backend.maxconn.amount=10`                        | Set a maximum number of connections to the backend.<br>Must be used in conjunction with the below label to take effect.                                                                                                |
 | `traefik.backend.maxconn.extractorfunc=client.ip`          | Set the function to be used against the request to determine what to limit maximum connections to the backend by.<br>Must be used in conjunction with the above label to take effect.                                  |
 | `traefik.frontend.auth.basic=EXPR`                         | Sets basic authentication for that frontend in CSV format: `User:Hash,User:Hash`                                                                                                                                       |
@@ -136,7 +146,8 @@ The following labels can be defined on Mesos tasks. They adjust the behaviour fo
 | `traefik.frontend.redirect.replacement=http://mydomain/$1` | Redirect to another URL for that frontend.<br>Must be set with `traefik.frontend.redirect.regex`.                                                                                                                      |
 | `traefik.frontend.redirect.permanent=true`                 | Return 301 instead of 302.                                                                                                                                                                                             |
 | `traefik.frontend.rule=EXPR`                               | Override the default frontend rule. Default: `Host:{discovery_name}.{domain}`.                                                                                                                                         |
-| `traefik.frontend.whitelistSourceRange=RANGE`              | List of IP-Ranges which are allowed to access.<br>An unset or empty list allows all Source-IPs to access. If one of the Net-Specifications are invalid, the whole list is invalid and allows all Source-IPs to access. |
+| `traefik.frontend.whiteList.sourceRange=RANGE`             | List of IP-Ranges which are allowed to access.<br>An unset or empty list allows all Source-IPs to access. If one of the Net-Specifications are invalid, the whole list is invalid and allows all Source-IPs to access. |
+| `traefik.frontend.whiteList.useXForwardedFor=true`         | Use `X-Forwarded-For` header as valid source of IP for the white list.                                                                                                                                                 |
 
 ### Custom Headers
 
@@ -150,7 +161,17 @@ The following labels can be defined on Mesos tasks. They adjust the behaviour fo
 | Label                                                    | Description                                                                                                                                                                                         |
 |----------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `traefik.frontend.headers.allowedHosts=EXPR`             | Provides a list of allowed hosts that requests will be processed.<br>Format: `Host1,Host2`                                                                                                          |
+| `traefik.frontend.headers.browserXSSFilter=true`         | Adds the X-XSS-Protection header with the value `1; mode=block`.                                                                                                                                    |
+| `traefik.frontend.headers.contentSecurityPolicy=VALUE`   | Adds CSP Header with the custom value.                                                                                                                                                              |
+| `traefik.frontend.headers.contentTypeNosniff=true`       | Adds the `X-Content-Type-Options` header with the value `nosniff`.                                                                                                                                  |
+| `traefik.frontend.headers.customBrowserXSSValue=VALUE`   | Set custom value for X-XSS-Protection header. This overrides the BrowserXssFilter option.                                                                                                           |
+| `traefik.frontend.headers.customFrameOptionsValue=VALUE` | Overrides the `X-Frame-Options` header with the custom value.                                                                                                                                       |
+| `traefik.frontend.headers.forceSTSHeader=false`          | Adds the STS  header to non-SSL requests.                                                                                                                                                           |
+| `traefik.frontend.headers.frameDeny=false`               | Adds the `X-Frame-Options` header with the value of `DENY`.                                                                                                                                         |
 | `traefik.frontend.headers.hostsProxyHeaders=EXPR `       | Provides a list of headers that the proxied hostname may be stored.<br>Format: `HEADER1,HEADER2`                                                                                                    |
+| `traefik.frontend.headers.isDevelopment=false`           | This will cause the `AllowedHosts`, `SSLRedirect`, and `STSSeconds`/`STSIncludeSubdomains` options to be ignored during development.<br>When deploying to production, be sure to set this to false. |
+| `traefik.frontend.headers.publicKey=VALUE`               | Adds pinned HTST public key header.                                                                                                                                                                 |
+| `traefik.frontend.headers.referrerPolicy=VALUE`          | Adds referrer policy  header.                                                                                                                                                                       |
 | `traefik.frontend.headers.SSLRedirect=true`              | Forces the frontend to redirect to SSL if a non-SSL request is sent.                                                                                                                                |
 | `traefik.frontend.headers.SSLTemporaryRedirect=true`     | Forces the frontend to redirect to SSL if a non-SSL request is sent, but by sending a 302 instead of a 301.                                                                                         |
 | `traefik.frontend.headers.SSLHost=HOST`                  | This setting configures the hostname that redirects will be based on. Default is "", which is the same host as the request.                                                                         |
@@ -158,13 +179,3 @@ The following labels can be defined on Mesos tasks. They adjust the behaviour fo
 | `traefik.frontend.headers.STSSeconds=315360000`          | Sets the max-age of the STS header.                                                                                                                                                                 |
 | `traefik.frontend.headers.STSIncludeSubdomains=true`     | Adds the `IncludeSubdomains` section of the STS  header.                                                                                                                                            |
 | `traefik.frontend.headers.STSPreload=true`               | Adds the preload flag to the STS  header.                                                                                                                                                           |
-| `traefik.frontend.headers.forceSTSHeader=false`          | Adds the STS  header to non-SSL requests.                                                                                                                                                           |
-| `traefik.frontend.headers.frameDeny=false`               | Adds the `X-Frame-Options` header with the value of `DENY`.                                                                                                                                         |
-| `traefik.frontend.headers.customFrameOptionsValue=VALUE` | Overrides the `X-Frame-Options` header with the custom value.                                                                                                                                       |
-| `traefik.frontend.headers.contentTypeNosniff=true`       | Adds the `X-Content-Type-Options` header with the value `nosniff`.                                                                                                                                  |
-| `traefik.frontend.headers.browserXSSFilter=true`         | Adds the X-XSS-Protection header with the value `1; mode=block`.                                                                                                                                    |
-| `traefik.frontend.headers.customBrowserXSSValue=VALUE`   | Set custom value for X-XSS-Protection header. This overrides the BrowserXssFilter option.                                                                                                           |
-| `traefik.frontend.headers.contentSecurityPolicy=VALUE`   | Adds CSP Header with the custom value.                                                                                                                                                              |
-| `traefik.frontend.headers.publicKey=VALUE`               | Adds pinned HTST public key header.                                                                                                                                                                 |
-| `traefik.frontend.headers.referrerPolicy=VALUE`          | Adds referrer policy  header.                                                                                                                                                                       |
-| `traefik.frontend.headers.isDevelopment=false`           | This will cause the `AllowedHosts`, `SSLRedirect`, and `STSSeconds`/`STSIncludeSubdomains` options to be ignored during development.<br>When deploying to production, be sure to set this to false. |

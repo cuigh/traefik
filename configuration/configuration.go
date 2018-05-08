@@ -11,6 +11,8 @@ import (
 	"github.com/containous/traefik/api"
 	"github.com/containous/traefik/log"
 	"github.com/containous/traefik/middlewares/tracing"
+	"github.com/containous/traefik/middlewares/tracing/jaeger"
+	"github.com/containous/traefik/middlewares/tracing/zipkin"
 	"github.com/containous/traefik/ping"
 	acmeprovider "github.com/containous/traefik/provider/acme"
 	"github.com/containous/traefik/provider/boltdb"
@@ -79,6 +81,7 @@ type GlobalConfiguration struct {
 	HealthCheck               *HealthCheckConfig      `description:"Health check parameters" export:"true"`
 	RespondingTimeouts        *RespondingTimeouts     `description:"Timeouts for incoming requests to the Traefik instance" export:"true"`
 	ForwardingTimeouts        *ForwardingTimeouts     `description:"Timeouts for requests forwarded to the backend servers" export:"true"`
+	AllowMinWeightZero        bool                    `description:"Allow weight to take 0 as minimum real value." export:"true"`         // Deprecated
 	Web                       *WebCompatibility       `description:"(Deprecated) Enable Web backend with default settings" export:"true"` // Deprecated
 	Docker                    *docker.Provider        `description:"Enable Docker backend with default settings" export:"true"`
 	File                      *file.Provider          `description:"Enable File backend with default settings" export:"true"`
@@ -184,11 +187,22 @@ func (gc *GlobalConfiguration) SetEffectiveConfiguration(configFile string) {
 		}
 	}
 
-	// ForwardedHeaders must be remove in the next breaking version
 	for entryPointName := range gc.EntryPoints {
 		entryPoint := gc.EntryPoints[entryPointName]
+		// ForwardedHeaders must be remove in the next breaking version
 		if entryPoint.ForwardedHeaders == nil {
 			entryPoint.ForwardedHeaders = &ForwardedHeaders{Insecure: true}
+		}
+
+		if len(entryPoint.WhitelistSourceRange) > 0 {
+			log.Warnf("Deprecated configuration found: %s. Please use %s.", "whiteListSourceRange", "whiteList.sourceRange")
+
+			if entryPoint.WhiteList == nil {
+				entryPoint.WhiteList = &types.WhiteList{
+					SourceRange: entryPoint.WhitelistSourceRange,
+				}
+				entryPoint.WhitelistSourceRange = nil
+			}
 		}
 	}
 
@@ -203,7 +217,66 @@ func (gc *GlobalConfiguration) SetEffectiveConfiguration(configFile string) {
 		gc.LifeCycle.GraceTimeOut = gc.GraceTimeOut
 	}
 
+	if gc.Docker != nil {
+		if len(gc.Docker.Filename) != 0 && gc.Docker.TemplateVersion != 2 {
+			log.Warn("Template version 1 is deprecated, please use version 2, see TemplateVersion.")
+			gc.Docker.TemplateVersion = 1
+		} else {
+			gc.Docker.TemplateVersion = 2
+		}
+	}
+
+	if gc.Marathon != nil {
+		if len(gc.Marathon.Filename) != 0 && gc.Marathon.TemplateVersion != 2 {
+			log.Warn("Template version 1 is deprecated, please use version 2, see TemplateVersion.")
+			gc.Marathon.TemplateVersion = 1
+		} else {
+			gc.Marathon.TemplateVersion = 2
+		}
+	}
+
+	if gc.Mesos != nil {
+		if len(gc.Mesos.Filename) != 0 && gc.Mesos.TemplateVersion != 2 {
+			log.Warn("Template version 1 is deprecated, please use version 2, see TemplateVersion.")
+			gc.Mesos.TemplateVersion = 1
+		} else {
+			gc.Mesos.TemplateVersion = 2
+		}
+	}
+
+	if gc.Eureka != nil {
+		if gc.Eureka.Delay != 0 {
+			log.Warn("Delay has been deprecated -- please use RefreshSeconds")
+			gc.Eureka.RefreshSeconds = gc.Eureka.Delay
+		}
+	}
+
+	if gc.ECS != nil {
+		if len(gc.ECS.Filename) != 0 && gc.ECS.TemplateVersion != 2 {
+			log.Warn("Template version 1 is deprecated, please use version 2, see TemplateVersion.")
+			gc.ECS.TemplateVersion = 1
+		} else {
+			gc.ECS.TemplateVersion = 2
+		}
+	}
+
+	if gc.ConsulCatalog != nil {
+		if len(gc.ConsulCatalog.Filename) != 0 && gc.ConsulCatalog.TemplateVersion != 2 {
+			log.Warn("Template version 1 is deprecated, please use version 2, see TemplateVersion.")
+			gc.ConsulCatalog.TemplateVersion = 1
+		} else {
+			gc.ConsulCatalog.TemplateVersion = 2
+		}
+	}
+
 	if gc.Rancher != nil {
+		if len(gc.Rancher.Filename) != 0 && gc.Rancher.TemplateVersion != 2 {
+			log.Warn("Template version 1 is deprecated, please use version 2, see TemplateVersion.")
+			gc.Rancher.TemplateVersion = 1
+		} else {
+			gc.Rancher.TemplateVersion = 2
+		}
+
 		// Ensure backwards compatibility for now
 		if len(gc.Rancher.AccessKey) > 0 ||
 			len(gc.Rancher.Endpoint) > 0 ||
@@ -229,17 +302,13 @@ func (gc *GlobalConfiguration) SetEffectiveConfiguration(configFile string) {
 		gc.API.Debug = gc.Debug
 	}
 
-	if gc.Debug {
-		gc.LogLevel = "DEBUG"
-	}
-
 	if gc.Web != nil && (gc.Web.Path == "" || !strings.HasSuffix(gc.Web.Path, "/")) {
 		gc.Web.Path += "/"
 	}
 
 	// Try to fallback to traefik config file in case the file provider is enabled
-	// but has no file name configured.
-	if gc.File != nil && len(gc.File.Filename) == 0 {
+	// but has no file name configured and is not in a directory mode.
+	if gc.File != nil && len(gc.File.Filename) == 0 && len(gc.File.Directory) == 0 {
 		if len(configFile) > 0 {
 			gc.File.Filename = configFile
 		} else {
@@ -248,6 +317,43 @@ func (gc *GlobalConfiguration) SetEffectiveConfiguration(configFile string) {
 	}
 
 	gc.initACMEProvider()
+	gc.initTracing()
+}
+
+func (gc *GlobalConfiguration) initTracing() {
+	if gc.Tracing != nil {
+		switch gc.Tracing.Backend {
+		case jaeger.Name:
+			if gc.Tracing.Jaeger == nil {
+				gc.Tracing.Jaeger = &jaeger.Config{
+					SamplingServerURL:  "http://localhost:5778/sampling",
+					SamplingType:       "const",
+					SamplingParam:      1.0,
+					LocalAgentHostPort: "127.0.0.1:6831",
+				}
+			}
+			if gc.Tracing.Zipkin != nil {
+				log.Warn("Zipkin configuration will be ignored")
+				gc.Tracing.Zipkin = nil
+			}
+		case zipkin.Name:
+			if gc.Tracing.Zipkin == nil {
+				gc.Tracing.Zipkin = &zipkin.Config{
+					HTTPEndpoint: "http://localhost:9411/api/v1/spans",
+					SameSpan:     false,
+					ID128Bit:     true,
+					Debug:        false,
+				}
+			}
+			if gc.Tracing.Jaeger != nil {
+				log.Warn("Jaeger configuration will be ignored")
+				gc.Tracing.Jaeger = nil
+			}
+		default:
+			log.Warnf("Unknown tracer %q", gc.Tracing.Backend)
+			return
+		}
+	}
 }
 
 func (gc *GlobalConfiguration) initACMEProvider() {
@@ -294,15 +400,15 @@ func (gc *GlobalConfiguration) ValidateConfiguration() {
 			log.Fatalf("Unknown entrypoint %q for ACME configuration", gc.ACME.EntryPoint)
 		} else {
 			if gc.EntryPoints[gc.ACME.EntryPoint].TLS == nil {
-				log.Fatalf("Entrypoint without TLS %q for ACME configuration", gc.ACME.EntryPoint)
+				log.Fatalf("Entrypoint %q has no TLS configuration for ACME configuration", gc.ACME.EntryPoint)
 			}
 		}
 	} else if acmeprovider.IsEnabled() {
 		if _, ok := gc.EntryPoints[acmeprovider.Get().EntryPoint]; !ok {
-			log.Fatalf("Unknown entrypoint %q for provider ACME configuration", gc.ACME.EntryPoint)
+			log.Fatalf("Unknown entrypoint %q for provider ACME configuration", acmeprovider.Get().EntryPoint)
 		} else {
 			if gc.EntryPoints[acmeprovider.Get().EntryPoint].TLS == nil {
-				log.Fatalf("Entrypoint without TLS %q for provider ACME configuration", gc.ACME.EntryPoint)
+				log.Fatalf("Entrypoint %q has no TLS configuration for provider ACME configuration", acmeprovider.Get().EntryPoint)
 			}
 		}
 	}
@@ -367,18 +473,6 @@ type RespondingTimeouts struct {
 type ForwardingTimeouts struct {
 	DialTimeout           flaeg.Duration `description:"The amount of time to wait until a connection to a backend server can be established. Defaults to 30 seconds. If zero, no timeout exists" export:"true"`
 	ResponseHeaderTimeout flaeg.Duration `description:"The amount of time to wait for a server's response headers after fully writing the request (including its body, if any). If zero, no timeout exists" export:"true"`
-}
-
-// ProxyProtocol contains Proxy-Protocol configuration
-type ProxyProtocol struct {
-	Insecure   bool
-	TrustedIPs []string
-}
-
-// ForwardedHeaders Trust client forwarding headers
-type ForwardedHeaders struct {
-	Insecure   bool
-	TrustedIPs []string
 }
 
 // LifeCycle contains configurations relevant to the lifecycle (such as the

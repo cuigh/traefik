@@ -121,6 +121,7 @@ spec:
         args:
         - --api
         - --kubernetes
+        - --logLevel=INFO
 ---
 kind: Service
 apiVersion: v1
@@ -182,11 +183,15 @@ spec:
         - name: admin
           containerPort: 8080
         securityContext:
-          privileged: true
+          capabilities:
+            drop:
+            - ALL
+            add:
+            - NET_BIND_SERVICE
         args:
-        - -d
         - --api
         - --kubernetes
+        - --logLevel=INFO
 ---
 kind: Service
 apiVersion: v1
@@ -345,7 +350,8 @@ We should now be able to visit [traefik-ui.minikube](http://traefik-ui.minikube)
 ### Add a TLS Certificate to the Ingress
 
 !!! note
-    For this example to work you need a TLS entrypoint. You don't have to provide a TLS certificate at this point. For more details see [here](/configuration/entrypoints/).
+    For this example to work you need a TLS entrypoint. You don't have to provide a TLS certificate at this point.
+    For more details see [here](/configuration/entrypoints/).
 
 To setup an HTTPS-protected ingress, you can leverage the TLS feature of the ingress resource.
 
@@ -366,10 +372,11 @@ spec:
           serviceName: traefik-web-ui
           servicePort: 80
   tls:
-    secretName: traefik-ui-tls-cert
+   - secretName: traefik-ui-tls-cert
 ```
 
-In addition to the modified ingress you need to provide the TLS certificate via a Kubernetes secret in the same namespace as the ingress. The following two commands will generate a new certificate and create a secret containing the key and cert files.
+In addition to the modified ingress you need to provide the TLS certificate via a Kubernetes secret in the same namespace as the ingress.
+The following two commands will generate a new certificate and create a secret containing the key and cert files.
 
 ```shell
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout tls.key -out tls.crt -subj "/CN=traefik-ui.minikube"
@@ -379,13 +386,16 @@ kubectl -n kube-system create secret tls traefik-ui-tls-cert --key=tls.key --cer
 If there are any errors while loading the TLS section of an ingress, the whole ingress will be skipped.
 
 !!! note
-    The secret must have two entries named `tls.key`and `tls.crt`. See the [Kubernetes documentation](https://kubernetes.io/docs/concepts/services-networking/ingress/#tls) for more details.
+    The secret must have two entries named `tls.key`and `tls.crt`.
+    See the [Kubernetes documentation](https://kubernetes.io/docs/concepts/services-networking/ingress/#tls) for more details.
 
 !!! note
-    The TLS certificates will be added to all entrypoints defined by the ingress annotation `traefik.frontend.entryPoints`. If no such annotation is provided, the TLS certificates will be added to all TLS-enabled `defaultEntryPoints`.
+    The TLS certificates will be added to all entrypoints defined by the ingress annotation `traefik.frontend.entryPoints`.
+    If no such annotation is provided, the TLS certificates will be added to all TLS-enabled `defaultEntryPoints`.
 
 !!! note
-    The field `hosts` in the TLS configuration is ignored. Instead, the domains provided by the certificate are used for this purpose. It is recommended to not use wildcard certificates as they will match globally.
+    The field `hosts` in the TLS configuration is ignored. Instead, the domains provided by the certificate are used for this purpose.
+    It is recommended to not use wildcard certificates as they will match globally.
 
 ## Basic Authentication
 
@@ -393,7 +403,7 @@ It's possible to protect access to Træfik through basic authentication. (See th
 
 ### Creating the Secret
 
-A. Use `htpasswd` to create a file containing the username and the base64-encoded password:
+A. Use `htpasswd` to create a file containing the username and the MD5-encoded password:
 
 ```shell
 htpasswd -c ./auth myusername
@@ -826,13 +836,21 @@ Sometimes Træfik runs along other Ingress controller implementations. One such 
 
 The `kubernetes.io/ingress.class` annotation can be attached to any Ingress object in order to control whether Træfik should handle it.
 
-If the annotation is missing, contains an empty value, or the value `traefik`, then the Træfik controller will take responsibility and process the associated Ingress object. If the annotation contains any other value (usually the name of a different Ingress controller), Træfik will ignore the object.
+If the annotation is missing, contains an empty value, or the value `traefik`, then the Træfik controller will take responsibility and process the associated Ingress object.
+If the annotation contains any other value (usually the name of a different Ingress controller), Træfik will ignore the object.
+
+It is also possible to set the `ingressClass` option in Træfik to a particular value.
+If that's the case and the value contains a `traefik` prefix, then only those Ingress objects matching the same value will be processed.
+For instance, setting the option to `traefik-internal` causes Træfik to process Ingress objects with the same `kubernetes.io/ingress.class` annotation value, ignoring all other objects (including those with a `traefik` value, empty value, and missing annotation).
 
 ### Between multiple Træfik Deployments
 
-Sometimes multiple Træfik Deployments are supposed to run concurrently. For instance, it is conceivable to have one Deployment deal with internal and another one with external traffic.
+Sometimes multiple Træfik Deployments are supposed to run concurrently.
+For instance, it is conceivable to have one Deployment deal with internal and another one with external traffic.
 
-For such cases, it is advisable to classify Ingress objects through a label and configure the `labelSelector` option per each Træfik Deployment accordingly. To stick with the internal/external example above, all Ingress objects meant for internal traffic could receive a `traffic-type: internal` label while objects designated for external traffic receive a `traffic-type: external` label. The label selectors on the Træfik Deployments would then be `traffic-type=internal` and `traffic-type=external`, respectively.
+For such cases, it is advisable to classify Ingress objects through a label and configure the `labelSelector` option per each Træfik Deployment accordingly.
+To stick with the internal/external example above, all Ingress objects meant for internal traffic could receive a `traffic-type: internal` label while objects designated for external traffic receive a `traffic-type: external` label.
+The label selectors on the Træfik Deployments would then be `traffic-type=internal` and `traffic-type=external`, respectively.
 
 ## Production advice
 

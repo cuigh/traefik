@@ -3,15 +3,15 @@
   {{ $app := index $tasks 0 }}
   {{ $backendName := getBackendName $app }}
 
-  [backends.backend-{{ $backendName }}]
+  [backends."backend-{{ $backendName }}"]
 
-  {{ $circuitBreaker := getCircuitBreaker $app }}
+  {{ $circuitBreaker := getCircuitBreaker $app.TraefikLabels }}
   {{if $circuitBreaker }}
   [backends."backend-{{ $backendName }}".circuitBreaker]
     expression = "{{ $circuitBreaker.Expression }}"
   {{end}}
 
-  {{ $loadBalancer := getLoadBalancer $app }}
+  {{ $loadBalancer := getLoadBalancer $app.TraefikLabels }}
   {{if $loadBalancer }}
     [backends."backend-{{ $backendName }}".loadBalancer]
       method = "{{ $loadBalancer.Method }}"
@@ -22,24 +22,24 @@
       {{end}}
   {{end}}
 
-  {{ $maxConn := getMaxConn $app }}
+  {{ $maxConn := getMaxConn $app.TraefikLabels }}
   {{if $maxConn }}
   [backends."backend-{{ $backendName }}".maxConn]
     extractorFunc = "{{ $maxConn.ExtractorFunc }}"
     amount = {{ $maxConn.Amount }}
   {{end}}
 
-  {{ $healthCheck := getHealthCheck $app }}
+  {{ $healthCheck := getHealthCheck $app.TraefikLabels }}
   {{if $healthCheck }}
-  [backends.backend-{{ $backendName }}.healthCheck]
+  [backends."backend-{{ $backendName }}".healthCheck]
     path = "{{ $healthCheck.Path }}"
     port = {{ $healthCheck.Port }}
     interval = "{{ $healthCheck.Interval }}"
   {{end}}
 
-  {{ $buffering := getBuffering $app }}
+  {{ $buffering := getBuffering $app.TraefikLabels }}
   {{if $buffering }}
-  [backends.backend-{{ $backendName }}.buffering]
+  [backends."backend-{{ $backendName }}".buffering]
     maxRequestBodyBytes = {{ $buffering.MaxRequestBodyBytes }}
     memRequestBodyBytes = {{ $buffering.MemRequestBodyBytes }}
     maxResponseBodyBytes = {{ $buffering.MaxResponseBodyBytes }}
@@ -48,7 +48,7 @@
   {{end}}
 
   {{range $serverName, $server := getServers $tasks }}
-  [backends.backend-{{ $backendName }}.servers.{{ $serverName }}]
+  [backends."backend-{{ $backendName }}".servers."{{ $serverName }}"]
     url = "{{ $server.URL }}"
     weight = {{ $server.Weight }}
   {{end}}
@@ -59,28 +59,30 @@
   {{ $app := index $tasks 0 }}
   {{ $frontendName := getFrontEndName $app }}
 
-  [frontends.frontend-{{ $frontendName }}]
+  [frontends."frontend-{{ $frontendName }}"]
     backend = "backend-{{ getBackendName $app }}"
-    priority = {{ getPriority $app }}
-    passHostHeader = {{ getPassHostHeader $app }}
-    passTLSCert = {{ getPassTLSCert $app }}
+    priority = {{ getPriority $app.TraefikLabels }}
+    passHostHeader = {{ getPassHostHeader $app.TraefikLabels }}
+    passTLSCert = {{ getPassTLSCert $app.TraefikLabels }}
 
-    entryPoints = [{{range getEntryPoints $app }}
+    entryPoints = [{{range getEntryPoints $app.TraefikLabels }}
       "{{.}}",
       {{end}}]
 
-    {{ $whitelistSourceRange := getWhitelistSourceRange $app }}
-    {{if $whitelistSourceRange }}
-    whitelistSourceRange = [{{range $whitelistSourceRange }}
+    basicAuth = [{{range getBasicAuth $app.TraefikLabels }}
       "{{.}}",
       {{end}}]
+
+    {{ $whitelist := getWhiteList $app.TraefikLabels }}
+    {{if $whitelist }}
+    [frontends."frontend-{{ $frontendName }}".whiteList]
+      sourceRange = [{{range $whitelist.SourceRange }}
+        "{{.}}",
+        {{end}}]
+      useXForwardedFor = {{ $whitelist.UseXForwardedFor }}
     {{end}}
 
-    basicAuth = [{{range getBasicAuth $app }}
-      "{{.}}",
-      {{end}}]
-
-    {{ $redirect := getRedirect $app }}
+    {{ $redirect := getRedirect $app.TraefikLabels }}
     {{if $redirect }}
     [frontends."frontend-{{ $frontendName }}".redirect]
       entryPoint = "{{ $redirect.EntryPoint }}"
@@ -89,33 +91,33 @@
       permanent = {{ $redirect.Permanent }}
     {{end}}
 
-    {{ $errorPages := getErrorPages $app }}
+    {{ $errorPages := getErrorPages $app.TraefikLabels }}
     {{if $errorPages }}
     [frontends."frontend-{{ $frontendName }}".errors]
       {{range $pageName, $page := $errorPages }}
-      [frontends."frontend-{{ $frontendName }}".errors.{{ $pageName }}]
+      [frontends."frontend-{{ $frontendName }}".errors."{{ $pageName }}"]
         status = [{{range $page.Status }}
         "{{.}}",
         {{end}}]
-        backend = "{{ $page.Backend }}"
+        backend = "backend-{{ $page.Backend }}"
         query = "{{ $page.Query }}"
       {{end}}
     {{end}}
 
-    {{ $rateLimit := getRateLimit $app }}
+    {{ $rateLimit := getRateLimit $app.TraefikLabels }}
     {{if $rateLimit }}
     [frontends."frontend-{{ $frontendName }}".rateLimit]
       extractorFunc = "{{ $rateLimit.ExtractorFunc }}"
       [frontends."frontend-{{ $frontendName }}".rateLimit.rateSet]
         {{ range $limitName, $limit := $rateLimit.RateSet }}
-        [frontends."frontend-{{ $frontendName }}".rateLimit.rateSet.{{ $limitName }}]
+        [frontends."frontend-{{ $frontendName }}".rateLimit.rateSet."{{ $limitName }}"]
           period = "{{ $limit.Period }}"
           average = {{ $limit.Average }}
           burst = {{ $limit.Burst }}
         {{end}}
     {{end}}
 
-    {{ $headers := getHeaders $app }}
+    {{ $headers := getHeaders $app.TraefikLabels }}
     {{if $headers }}
     [frontends."frontend-{{ $frontendName }}".headers]
       SSLRedirect = {{ $headers.SSLRedirect }}
@@ -169,7 +171,7 @@
       {{end}}
     {{end}}
 
-    [frontends.frontend-{{ $frontendName }}.routes.route-host-{{ $frontendName }}]
+    [frontends."frontend-{{ $frontendName }}".routes."route-host-{{ $frontendName }}"]
     rule = "{{ getFrontendRule $app }}"
 
 {{end}}

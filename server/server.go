@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
-	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -31,6 +30,7 @@ import (
 	"github.com/containous/traefik/middlewares"
 	"github.com/containous/traefik/middlewares/accesslog"
 	mauth "github.com/containous/traefik/middlewares/auth"
+	"github.com/containous/traefik/middlewares/errorpages"
 	"github.com/containous/traefik/middlewares/redirect"
 	"github.com/containous/traefik/middlewares/tracing"
 	"github.com/containous/traefik/provider"
@@ -55,9 +55,7 @@ import (
 	"golang.org/x/net/http2"
 )
 
-var (
-	httpServerLogger = stdlog.New(log.WriterLevel(logrus.DebugLevel), "", 0)
-)
+var httpServerLogger = stdlog.New(log.WriterLevel(logrus.DebugLevel), "", 0)
 
 // Server is the reverse-proxy/load-balancer engine
 type Server struct {
@@ -205,6 +203,26 @@ func (s *Server) Start() {
 	go s.listenSignals()
 }
 
+// StartWithContext starts the server and Stop/Close it when context is Done
+func (s *Server) StartWithContext(ctx context.Context) {
+	go func() {
+		defer s.Close()
+		<-ctx.Done()
+		log.Info("I have to go...")
+		reqAcceptGraceTimeOut := time.Duration(s.globalConfiguration.LifeCycle.RequestAcceptGraceTimeout)
+		if s.globalConfiguration.Ping != nil && reqAcceptGraceTimeOut > 0 {
+			s.globalConfiguration.Ping.SetTerminating()
+		}
+		if reqAcceptGraceTimeOut > 0 {
+			log.Infof("Waiting %s for incoming requests to cease", reqAcceptGraceTimeOut)
+			time.Sleep(reqAcceptGraceTimeOut)
+		}
+		log.Info("Stopping server gracefully")
+		s.Stop()
+	}()
+	s.Start()
+}
+
 // Wait blocks until server is shutted down.
 func (s *Server) Wait() {
 	<-s.stopChan
@@ -235,14 +253,13 @@ func (s *Server) Stop() {
 
 // Close destroys the server
 func (s *Server) Close() {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(s.globalConfiguration.LifeCycle.GraceTimeOut))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	go func(ctx context.Context) {
 		<-ctx.Done()
 		if ctx.Err() == context.Canceled {
 			return
 		} else if ctx.Err() == context.DeadlineExceeded {
-			log.Warn("Timeout while stopping traefik, killing instance ✝")
-			os.Exit(1)
+			panic("Timeout while stopping traefik, killing instance ✝")
 		}
 	}(ctx)
 	stopMetricsClients()
@@ -307,8 +324,8 @@ func (s *Server) setupServerEntryPoint(newServerEntryPointName string, newServer
 			}
 			serverMiddlewares = append(serverMiddlewares, s.globalConfiguration.API.StatsRecorder)
 		}
-
 	}
+
 	if s.globalConfiguration.EntryPoints[newServerEntryPointName].Auth != nil {
 		authMiddleware, err := mauth.NewAuthenticator(s.globalConfiguration.EntryPoints[newServerEntryPointName].Auth, s.tracingMiddleware)
 		if err != nil {
@@ -317,17 +334,22 @@ func (s *Server) setupServerEntryPoint(newServerEntryPointName string, newServer
 		serverMiddlewares = append(serverMiddlewares, s.wrapNegroniHandlerWithAccessLog(authMiddleware, fmt.Sprintf("Auth for entrypoint %s", newServerEntryPointName)))
 		serverInternalMiddlewares = append(serverInternalMiddlewares, authMiddleware)
 	}
+
 	if s.globalConfiguration.EntryPoints[newServerEntryPointName].Compress {
 		serverMiddlewares = append(serverMiddlewares, &middlewares.Compress{})
 	}
-	if len(s.globalConfiguration.EntryPoints[newServerEntryPointName].WhitelistSourceRange) > 0 {
-		ipWhitelistMiddleware, err := middlewares.NewIPWhitelister(s.globalConfiguration.EntryPoints[newServerEntryPointName].WhitelistSourceRange)
-		if err != nil {
-			log.Fatal("Error starting server: ", err)
-		}
+
+	ipWhitelistMiddleware, err := buildIPWhiteLister(
+		s.globalConfiguration.EntryPoints[newServerEntryPointName].WhiteList,
+		s.globalConfiguration.EntryPoints[newServerEntryPointName].WhitelistSourceRange)
+	if err != nil {
+		log.Fatal("Error starting server: ", err)
+	}
+	if ipWhitelistMiddleware != nil {
 		serverMiddlewares = append(serverMiddlewares, s.wrapNegroniHandlerWithAccessLog(ipWhitelistMiddleware, fmt.Sprintf("ipwhitelister for entrypoint %s", newServerEntryPointName)))
 		serverInternalMiddlewares = append(serverInternalMiddlewares, ipWhitelistMiddleware)
 	}
+
 	newSrv, listener, err := s.prepareServer(newServerEntryPointName, s.globalConfiguration.EntryPoints[newServerEntryPointName], newServerEntryPoint.httpRouter, serverMiddlewares, serverInternalMiddlewares)
 	if err != nil {
 		log.Fatal("Error preparing server: ", err)
@@ -369,7 +391,7 @@ func (s *Server) preLoadConfiguration(configMsg types.ConfigMessage) {
 			providerConfigUpdateCh = make(chan types.ConfigMessage)
 			s.providerConfigUpdateMap[configMsg.ProviderName] = providerConfigUpdateCh
 			s.routinesPool.Go(func(stop chan bool) {
-				throttleProviderConfigReload(providersThrottleDuration, s.configurationValidatedChan, providerConfigUpdateCh, stop)
+				s.throttleProviderConfigReload(providersThrottleDuration, s.configurationValidatedChan, providerConfigUpdateCh, stop)
 			})
 		}
 		providerConfigUpdateCh <- configMsg
@@ -380,11 +402,11 @@ func (s *Server) preLoadConfiguration(configMsg types.ConfigMessage) {
 // It will immediately publish a new configuration and then only publish the next configuration after the throttle duration.
 // Note that in the case it receives N new configs in the timeframe of the throttle duration after publishing,
 // it will publish the last of the newly received configurations.
-func throttleProviderConfigReload(throttle time.Duration, publish chan<- types.ConfigMessage, in <-chan types.ConfigMessage, stop chan bool) {
+func (s *Server) throttleProviderConfigReload(throttle time.Duration, publish chan<- types.ConfigMessage, in <-chan types.ConfigMessage, stop chan bool) {
 	ring := channels.NewRingChannel(1)
 	defer ring.Close()
 
-	safe.Go(func() {
+	s.routinesPool.Go(func(stop chan bool) {
 		for {
 			select {
 			case <-stop:
@@ -493,15 +515,13 @@ func (s *Server) loadHTTPSConfiguration(configurations types.Configurations, def
 	return newEPCertificates, nil
 }
 
-// getCertificate allows to customize tlsConfig.Getcertificate behaviour to get the certificates inserted dynamically
+// getCertificate allows to customize tlsConfig.GetCertificate behaviour to get the certificates inserted dynamically
 func (s *serverEntryPoint) getCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	domainToCheck := types.CanonicalDomain(clientHello.ServerName)
 	if s.certs.Get() != nil {
 		for domains, cert := range s.certs.Get().(map[string]*tls.Certificate) {
-			for _, domain := range strings.Split(domains, ",") {
-				selector := "^" + strings.Replace(domain, "*.", "[^\\.]*\\.?", -1) + "$"
-				domainCheck, _ := regexp.MatchString(selector, domainToCheck)
-				if domainCheck {
+			for _, certDomain := range strings.Split(domains, ",") {
+				if types.MatchDomain(domainToCheck, certDomain) {
 					return cert, nil
 				}
 			}
@@ -730,6 +750,10 @@ func (s *Server) addInternalPublicRoutes(entryPointName string, router *mux.Rout
 	if s.globalConfiguration.Ping != nil && s.globalConfiguration.Ping.EntryPoint != "" && s.globalConfiguration.Ping.EntryPoint == entryPointName {
 		s.globalConfiguration.Ping.AddRoutes(router)
 	}
+
+	if s.globalConfiguration.API != nil && s.globalConfiguration.API.EntryPoint == entryPointName && s.leadership != nil {
+		s.leadership.AddRoutes(router)
+	}
 }
 
 func (s *Server) addACMERoutes(entryPointName string, router *mux.Router) {
@@ -772,7 +796,7 @@ func (s *Server) prepareServer(entryPointName string, entryPoint *configuration.
 	}
 
 	if entryPoint.ProxyProtocol != nil {
-		IPs, err := whitelist.NewIP(entryPoint.ProxyProtocol.TrustedIPs, entryPoint.ProxyProtocol.Insecure)
+		IPs, err := whitelist.NewIP(entryPoint.ProxyProtocol.TrustedIPs, entryPoint.ProxyProtocol.Insecure, false)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error creating whitelist: %s", err)
 		}
@@ -784,7 +808,8 @@ func (s *Server) prepareServer(entryPointName string, entryPoint *configuration.
 				if !ok {
 					return false, fmt.Errorf("type error %v", addr)
 				}
-				return IPs.ContainsIP(ip.IP)
+
+				return IPs.ContainsIP(ip.IP), nil
 			},
 		}
 	}
@@ -887,6 +912,8 @@ func (s *Server) loadConfig(configurations types.Configurations, globalConfigura
 	redirectHandlers := make(map[string]negroni.Handler)
 	backends := map[string]http.Handler{}
 	backendsHealthCheck := map[string]*healthcheck.BackendHealthCheck{}
+	var errorPageHandlers []*errorpages.Handler
+
 	errorHandler := NewRecordingErrorHandler(middlewares.DefaultNetErrorRecorder{})
 
 	for providerName, config := range configurations {
@@ -1064,46 +1091,57 @@ func (s *Server) loadConfig(configurations types.Configurations, globalConfigura
 					}
 
 					if len(frontend.Errors) > 0 {
-						for _, errorPage := range frontend.Errors {
-							if config.Backends[errorPage.Backend] != nil && config.Backends[errorPage.Backend].Servers["error"].URL != "" {
-								errorPageHandler, err := middlewares.NewErrorPagesHandler(errorPage, config.Backends[errorPage.Backend].Servers["error"].URL)
-								if err != nil {
-									log.Errorf("Error creating custom error page middleware, %v", err)
-								} else {
-									n.Use(errorPageHandler)
-								}
+						for errorPageName, errorPage := range frontend.Errors {
+							if frontend.Backend == errorPage.Backend {
+								log.Errorf("Error when creating error page %q for frontend %q: error pages backend %q is the same as backend for the frontend (infinite call risk).",
+									errorPageName, frontendName, errorPage.Backend)
+							} else if config.Backends[errorPage.Backend] == nil {
+								log.Errorf("Error when creating error page %q for frontend %q: the backend %q doesn't exist.",
+									errorPageName, frontendName, errorPage.Backend)
 							} else {
-								log.Errorf("Error Page is configured for Frontend %s, but either Backend %s is not set or Backend URL is missing", frontendName, errorPage.Backend)
+								errorPagesHandler, err := errorpages.NewHandler(errorPage, entryPointName+providerName+errorPage.Backend)
+								if err != nil {
+									log.Errorf("Error creating error pages: %v", err)
+								} else {
+									if errorPageServer, ok := config.Backends[errorPage.Backend].Servers["error"]; ok {
+										errorPagesHandler.FallbackURL = errorPageServer.URL
+									}
+
+									errorPageHandlers = append(errorPageHandlers, errorPagesHandler)
+									n.Use(errorPagesHandler)
+								}
 							}
 						}
 					}
 
 					if frontend.RateLimit != nil && len(frontend.RateLimit.RateSet) > 0 {
 						lb, err = s.buildRateLimiter(lb, frontend.RateLimit)
-						lb = s.wrapHTTPHandlerWithAccessLog(lb, fmt.Sprintf("rate limit for %s", frontendName))
 						if err != nil {
 							log.Errorf("Error creating rate limiter: %v", err)
 							log.Errorf("Skipping frontend %s...", frontendName)
 							continue frontend
 						}
+						lb = s.wrapHTTPHandlerWithAccessLog(lb, fmt.Sprintf("rate limit for %s", frontendName))
 					}
 
 					maxConns := config.Backends[frontend.Backend].MaxConn
 					if maxConns != nil && maxConns.Amount != 0 {
 						extractFunc, err := utils.NewExtractor(maxConns.ExtractorFunc)
 						if err != nil {
-							log.Errorf("Error creating connlimit: %v", err)
+							log.Errorf("Error creating connection limit: %v", err)
 							log.Errorf("Skipping frontend %s...", frontendName)
 							continue frontend
 						}
-						log.Debugf("Creating load-balancer connlimit")
+
+						log.Debugf("Creating load-balancer connection limit")
+
 						lb, err = connlimit.New(lb, extractFunc, maxConns.Amount)
-						lb = s.wrapHTTPHandlerWithAccessLog(lb, fmt.Sprintf("connection limit for %s", frontendName))
 						if err != nil {
-							log.Errorf("Error creating connlimit: %v", err)
+							log.Errorf("Error creating connection limit: %v", err)
 							log.Errorf("Skipping frontend %s...", frontendName)
 							continue frontend
 						}
+						lb = s.wrapHTTPHandlerWithAccessLog(lb, fmt.Sprintf("connection limit for %s", frontendName))
 					}
 
 					if globalConfiguration.Retry != nil {
@@ -1115,13 +1153,16 @@ func (s *Server) loadConfig(configurations types.Configurations, globalConfigura
 						n.Use(middlewares.NewBackendMetricsMiddleware(s.metricsRegistry, frontend.Backend))
 					}
 
-					ipWhitelistMiddleware, err := configureIPWhitelistMiddleware(frontend.WhitelistSourceRange)
+					ipWhitelistMiddleware, err := buildIPWhiteLister(frontend.WhiteList, frontend.WhitelistSourceRange)
 					if err != nil {
 						log.Errorf("Error creating IP Whitelister: %s", err)
 					} else if ipWhitelistMiddleware != nil {
-						ipWhitelistMiddleware = s.wrapNegroniHandlerWithAccessLog(ipWhitelistMiddleware, fmt.Sprintf("ipwhitelister for %s", frontendName))
-						n.Use(s.tracingMiddleware.NewNegroniHandlerWrapper("IP whitelist", ipWhitelistMiddleware, false))
-						log.Infof("Configured IP Whitelists: %s", frontend.WhitelistSourceRange)
+						n.Use(
+							s.tracingMiddleware.NewNegroniHandlerWrapper(
+								"IP whitelist",
+								s.wrapNegroniHandlerWithAccessLog(ipWhitelistMiddleware, fmt.Sprintf("ipwhitelister for %s", frontendName)),
+								false))
+						log.Debugf("Configured IP Whitelists: %s", frontend.WhitelistSourceRange)
 					}
 
 					if frontend.Redirect != nil && entryPointName != frontend.Redirect.EntryPoint {
@@ -1132,6 +1173,16 @@ func (s *Server) loadConfig(configurations types.Configurations, globalConfigura
 							n.Use(s.wrapNegroniHandlerWithAccessLog(rewrite, fmt.Sprintf("frontend redirect for %s", frontendName)))
 							log.Debugf("Frontend %s redirect created", frontendName)
 						}
+					}
+
+					if headerMiddleware != nil {
+						log.Debugf("Adding header middleware for frontend %s", frontendName)
+						n.Use(s.tracingMiddleware.NewNegroniHandlerWrapper("Header", headerMiddleware, false))
+					}
+
+					if secureMiddleware != nil {
+						log.Debugf("Adding secure middleware for frontend %s", frontendName)
+						n.UseFunc(secureMiddleware.HandlerFuncWithNextForRequestOnly)
 					}
 
 					if len(frontend.BasicAuth) > 0 {
@@ -1150,16 +1201,6 @@ func (s *Server) loadConfig(configurations types.Configurations, globalConfigura
 						} else {
 							n.Use(s.wrapNegroniHandlerWithAccessLog(authMiddleware, fmt.Sprintf("Auth for %s", frontendName)))
 						}
-					}
-
-					if headerMiddleware != nil {
-						log.Debugf("Adding header middleware for frontend %s", frontendName)
-						n.Use(s.tracingMiddleware.NewNegroniHandlerWrapper("Header", headerMiddleware, false))
-					}
-
-					if secureMiddleware != nil {
-						log.Debugf("Adding secure middleware for frontend %s", frontendName)
-						n.UseFunc(secureMiddleware.HandlerFuncWithNextForRequestOnly)
 					}
 
 					if config.Backends[frontend.Backend].Buffering != nil {
@@ -1201,15 +1242,25 @@ func (s *Server) loadConfig(configurations types.Configurations, globalConfigura
 			}
 		}
 	}
+
+	for _, errorPageHandler := range errorPageHandlers {
+		if handler, ok := backends[errorPageHandler.BackendName]; ok {
+			errorPageHandler.PostLoad(handler)
+		} else {
+			errorPageHandler.PostLoad(nil)
+		}
+	}
+
 	healthcheck.GetHealthCheck(s.metricsRegistry).SetBackendsConfiguration(s.routinesPool.Ctx(), backendsHealthCheck)
+
 	// Get new certificates list sorted per entrypoints
 	// Update certificates
 	entryPointsCertificates, err := s.loadHTTPSConfiguration(configurations, globalConfiguration.DefaultEntryPoints)
+
 	// Sort routes and update certificates
 	for serverEntryPointName, serverEntryPoint := range serverEntryPoints {
 		serverEntryPoint.httpRouter.GetHandler().SortRoutes()
-		_, exists := entryPointsCertificates[serverEntryPointName]
-		if exists {
+		if _, exists := entryPointsCertificates[serverEntryPointName]; exists {
 			serverEntryPoint.certs.Set(entryPointsCertificates[serverEntryPointName])
 		}
 	}
@@ -1234,18 +1285,13 @@ func (s *Server) configureLBServers(lb healthcheck.LoadBalancer, config *types.C
 	return nil
 }
 
-func configureIPWhitelistMiddleware(whitelistSourceRanges []string) (negroni.Handler, error) {
-	if len(whitelistSourceRanges) > 0 {
-		ipSourceRanges := whitelistSourceRanges
-		ipWhitelistMiddleware, err := middlewares.NewIPWhitelister(ipSourceRanges)
-
-		if err != nil {
-			return nil, err
-		}
-
-		return ipWhitelistMiddleware, nil
+func buildIPWhiteLister(whiteList *types.WhiteList, wlRange []string) (*middlewares.IPWhiteLister, error) {
+	if whiteList != nil &&
+		len(whiteList.SourceRange) > 0 {
+		return middlewares.NewIPWhiteLister(whiteList.SourceRange, whiteList.UseXForwardedFor)
+	} else if len(wlRange) > 0 {
+		return middlewares.NewIPWhiteLister(wlRange, false)
 	}
-
 	return nil, nil
 }
 

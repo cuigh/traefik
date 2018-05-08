@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	fmtlog "log"
 	"net/http"
@@ -34,6 +35,7 @@ import (
 	"github.com/coreos/go-systemd/daemon"
 	"github.com/ogier/pflag"
 	"github.com/sirupsen/logrus"
+	"github.com/vulcand/oxy/roundrobin"
 )
 
 func main() {
@@ -68,6 +70,9 @@ Complete documentation is available at https://traefik.io`,
 	f.AddParser(reflect.TypeOf(ecs.Clusters{}), &ecs.Clusters{})
 	f.AddParser(reflect.TypeOf([]types.Domain{}), &types.Domains{})
 	f.AddParser(reflect.TypeOf(types.Buckets{}), &types.Buckets{})
+	f.AddParser(reflect.TypeOf(types.StatusCodes{}), &types.StatusCodes{})
+	f.AddParser(reflect.TypeOf(types.FieldNames{}), &types.FieldNames{})
+	f.AddParser(reflect.TypeOf(types.FieldHeaderNames{}), &types.FieldHeaderNames{})
 
 	// add commands
 	f.AddCommand(cmdVersion.NewCmd())
@@ -151,6 +156,10 @@ func runCmd(globalConfiguration *configuration.GlobalConfiguration, configFile s
 
 	http.DefaultTransport.(*http.Transport).Proxy = http.ProxyFromEnvironment
 
+	if globalConfiguration.AllowMinWeightZero {
+		roundrobin.SetDefaultWeight(0)
+	}
+
 	globalConfiguration.SetEffectiveConfiguration(configFile)
 	globalConfiguration.ValidateConfiguration()
 
@@ -173,7 +182,8 @@ func runCmd(globalConfiguration *configuration.GlobalConfiguration, configFile s
 		acme.Get().SetConfigListenerChan(make(chan types.Configuration))
 		svr.AddListener(acme.Get().ListenConfiguration)
 	}
-	svr.Start()
+	ctx := cmd.ContextWithSignal(context.Background())
+	svr.StartWithContext(ctx)
 	defer svr.Close()
 
 	sent, err := daemon.SdNotify(false, "READY=1")
@@ -212,12 +222,18 @@ func configureLogging(globalConfiguration *configuration.GlobalConfiguration) {
 	// configure default log flags
 	fmtlog.SetFlags(fmtlog.Lshortfile | fmtlog.LstdFlags)
 
-	if globalConfiguration.Debug {
-		globalConfiguration.LogLevel = "DEBUG"
-	}
-
 	// configure log level
-	level, err := logrus.ParseLevel(strings.ToLower(globalConfiguration.LogLevel))
+	// an explicitly defined log level always has precedence. if none is
+	// given and debug mode is disabled, the default is ERROR, and DEBUG
+	// otherwise.
+	levelStr := strings.ToLower(globalConfiguration.LogLevel)
+	if levelStr == "" {
+		levelStr = "error"
+		if globalConfiguration.Debug {
+			levelStr = "debug"
+		}
+	}
+	level, err := logrus.ParseLevel(levelStr)
 	if err != nil {
 		log.Error("Error getting level", err)
 	}
