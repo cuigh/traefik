@@ -22,8 +22,10 @@ import (
 	"github.com/containous/traefik/safe"
 	traefikTLS "github.com/containous/traefik/tls"
 	"github.com/containous/traefik/types"
+	"github.com/containous/traefik/version"
 	"github.com/pkg/errors"
-	acme "github.com/xenolf/lego/acmev2"
+	"github.com/xenolf/lego/acme"
+	legolog "github.com/xenolf/lego/log"
 	"github.com/xenolf/lego/providers/dns"
 )
 
@@ -97,10 +99,11 @@ func (p *Provider) SetConfigListenerChan(configFromListenerChan chan types.Confi
 }
 
 func (p *Provider) init() error {
+	acme.UserAgent = fmt.Sprintf("containous-traefik/%s", version.Version)
 	if p.ACMELogging {
-		acme.Logger = fmtlog.New(os.Stderr, "legolog: ", fmtlog.LstdFlags)
+		legolog.Logger = fmtlog.New(os.Stderr, "legolog: ", fmtlog.LstdFlags)
 	} else {
-		acme.Logger = fmtlog.New(ioutil.Discard, "", 0)
+		legolog.Logger = fmtlog.New(ioutil.Discard, "", 0)
 	}
 
 	var err error
@@ -112,6 +115,11 @@ func (p *Provider) init() error {
 	p.account, err = p.Store.GetAccount()
 	if err != nil {
 		return fmt.Errorf("unable to get ACME account : %v", err)
+	}
+
+	// Reset Account if caServer changed, thus registration URI can be updated
+	if p.account != nil && p.account.Registration != nil && !strings.HasPrefix(p.account.Registration.URI, p.CAServer) {
+		p.account = nil
 	}
 
 	p.certificates, err = p.Store.GetCertificates()
@@ -243,7 +251,7 @@ func (p *Provider) resolveCertificate(domain types.Domain, domainFromConfigurati
 	}
 	p.addCertificateForDomain(domain, certificate.Certificate, certificate.PrivateKey)
 
-	return &certificate, nil
+	return certificate, nil
 }
 
 func (p *Provider) getClient() (*acme.Client, error) {
@@ -315,7 +323,6 @@ func (p *Provider) getClient() (*acme.Client, error) {
 		}
 		p.client = client
 	}
-
 	return p.client, nil
 }
 
