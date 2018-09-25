@@ -12,10 +12,12 @@ import (
 	"strings"
 
 	"github.com/abronan/valkeyrie/store"
-	"github.com/containous/flaeg"
+	"github.com/containous/flaeg/parse"
 	"github.com/containous/mux"
+	"github.com/containous/traefik/ip"
 	"github.com/containous/traefik/log"
 	traefiktls "github.com/containous/traefik/tls"
+	"github.com/mitchellh/hashstructure"
 	"github.com/ryanuber/go-glob"
 )
 
@@ -38,7 +40,6 @@ type MaxConn struct {
 // LoadBalancer holds load balancing configuration.
 type LoadBalancer struct {
 	Method     string      `json:"method,omitempty"`
-	Sticky     bool        `json:"sticky,omitempty"` // Deprecated: use Stickiness instead
 	Stickiness *Stickiness `json:"stickiness,omitempty"`
 }
 
@@ -63,15 +64,18 @@ type Buffering struct {
 
 // WhiteList contains white list configuration.
 type WhiteList struct {
-	SourceRange      []string `json:"sourceRange,omitempty"`
-	UseXForwardedFor bool     `json:"useXForwardedFor,omitempty" export:"true"`
+	SourceRange []string    `json:"sourceRange,omitempty"`
+	IPStrategy  *IPStrategy `json:"ipStrategy,omitempty"`
 }
 
 // HealthCheck holds HealthCheck configuration
 type HealthCheck struct {
-	Path     string `json:"path,omitempty"`
-	Port     int    `json:"port,omitempty"`
-	Interval string `json:"interval,omitempty"`
+	Scheme   string            `json:"scheme,omitempty"`
+	Path     string            `json:"path,omitempty"`
+	Port     int               `json:"port,omitempty"`
+	Interval string            `json:"interval,omitempty"`
+	Hostname string            `json:"hostname,omitempty"`
+	Headers  map[string]string `json:"headers,omitempty"`
 }
 
 // Server holds server configuration.
@@ -104,7 +108,7 @@ type ErrorPage struct {
 
 // Rate holds a rate limiting configuration for a specific time period
 type Rate struct {
-	Period  flaeg.Duration `json:"period,omitempty"`
+	Period  parse.Duration `json:"period,omitempty"`
 	Average int64          `json:"average,omitempty"`
 	Burst   int64          `json:"burst,omitempty"`
 }
@@ -117,14 +121,16 @@ type RateLimit struct {
 
 // Headers holds the custom header configuration
 type Headers struct {
-	CustomRequestHeaders    map[string]string `json:"customRequestHeaders,omitempty"`
-	CustomResponseHeaders   map[string]string `json:"customResponseHeaders,omitempty"`
+	CustomRequestHeaders  map[string]string `json:"customRequestHeaders,omitempty"`
+	CustomResponseHeaders map[string]string `json:"customResponseHeaders,omitempty"`
+
 	AllowedHosts            []string          `json:"allowedHosts,omitempty"`
 	HostsProxyHeaders       []string          `json:"hostsProxyHeaders,omitempty"`
 	SSLRedirect             bool              `json:"sslRedirect,omitempty"`
 	SSLTemporaryRedirect    bool              `json:"sslTemporaryRedirect,omitempty"`
 	SSLHost                 string            `json:"sslHost,omitempty"`
 	SSLProxyHeaders         map[string]string `json:"sslProxyHeaders,omitempty"`
+	SSLForceHost            bool              `json:"sslForceHost,omitempty"`
 	STSSeconds              int64             `json:"stsSeconds,omitempty"`
 	STSIncludeSubdomains    bool              `json:"stsIncludeSubdomains,omitempty"`
 	STSPreload              bool              `json:"stsPreload,omitempty"`
@@ -152,6 +158,7 @@ func (h *Headers) HasSecureHeadersDefined() bool {
 		len(h.HostsProxyHeaders) != 0 ||
 		h.SSLRedirect ||
 		h.SSLTemporaryRedirect ||
+		h.SSLForceHost ||
 		h.SSLHost != "" ||
 		len(h.SSLProxyHeaders) != 0 ||
 		h.STSSeconds != 0 ||
@@ -171,19 +178,30 @@ func (h *Headers) HasSecureHeadersDefined() bool {
 
 // Frontend holds frontend configuration.
 type Frontend struct {
-	EntryPoints          []string              `json:"entryPoints,omitempty"`
-	Backend              string                `json:"backend,omitempty"`
-	Routes               map[string]Route      `json:"routes,omitempty"`
-	PassHostHeader       bool                  `json:"passHostHeader,omitempty"`
-	PassTLSCert          bool                  `json:"passTLSCert,omitempty"`
-	Priority             int                   `json:"priority"`
-	BasicAuth            []string              `json:"basicAuth"`
-	WhitelistSourceRange []string              `json:"whitelistSourceRange,omitempty"` // Deprecated
-	WhiteList            *WhiteList            `json:"whiteList,omitempty"`
-	Headers              *Headers              `json:"headers,omitempty"`
-	Errors               map[string]*ErrorPage `json:"errors,omitempty"`
-	RateLimit            *RateLimit            `json:"ratelimit,omitempty"`
-	Redirect             *Redirect             `json:"redirect,omitempty"`
+	EntryPoints       []string              `json:"entryPoints,omitempty" hash:"ignore"`
+	Backend           string                `json:"backend,omitempty"`
+	Routes            map[string]Route      `json:"routes,omitempty" hash:"ignore"`
+	PassHostHeader    bool                  `json:"passHostHeader,omitempty"`
+	PassTLSCert       bool                  `json:"passTLSCert,omitempty"` // Deprecated use PassTLSClientCert instead
+	PassTLSClientCert *TLSClientHeaders     `json:"passTLSClientCert,omitempty"`
+	Priority          int                   `json:"priority"`
+	WhiteList         *WhiteList            `json:"whiteList,omitempty"`
+	Headers           *Headers              `json:"headers,omitempty"`
+	Errors            map[string]*ErrorPage `json:"errors,omitempty"`
+	RateLimit         *RateLimit            `json:"ratelimit,omitempty"`
+	Redirect          *Redirect             `json:"redirect,omitempty"`
+	Auth              *Auth                 `json:"auth,omitempty"`
+}
+
+// Hash returns the hash value of a Frontend struct.
+func (f *Frontend) Hash() (string, error) {
+	hash, err := hashstructure.Hash(f, nil)
+
+	if err != nil {
+		return "", err
+	}
+
+	return strconv.FormatUint(hash, 10), nil
 }
 
 // Redirect configures a redirection of an entry point to another, or to an URL
@@ -235,7 +253,7 @@ type Configurations map[string]*Configuration
 type Configuration struct {
 	Backends  map[string]*Backend         `json:"backends,omitempty"`
 	Frontends map[string]*Frontend        `json:"frontends,omitempty"`
-	TLS       []*traefiktls.Configuration `json:"tls,omitempty"`
+	TLS       []*traefiktls.Configuration `json:"-"`
 }
 
 // ConfigMessage hold configuration information exchanged between parts of traefik.
@@ -371,10 +389,10 @@ type Cluster struct {
 
 // Auth holds authentication configuration (BASIC, DIGEST, users)
 type Auth struct {
-	Basic       *Basic   `export:"true"`
-	Digest      *Digest  `export:"true"`
-	Forward     *Forward `export:"true"`
-	HeaderField string   `export:"true"`
+	Basic       *Basic   `json:"basic,omitempty" export:"true"`
+	Digest      *Digest  `json:"digest,omitempty" export:"true"`
+	Forward     *Forward `json:"forward,omitempty" export:"true"`
+	HeaderField string   `json:"headerField,omitempty" export:"true"`
 }
 
 // Users authentication users
@@ -382,21 +400,24 @@ type Users []string
 
 // Basic HTTP basic authentication
 type Basic struct {
-	Users     `mapstructure:","`
-	UsersFile string
+	Users        `json:"users,omitempty" mapstructure:","`
+	UsersFile    string `json:"usersFile,omitempty"`
+	RemoveHeader bool   `json:"removeHeader,omitempty"`
 }
 
 // Digest HTTP authentication
 type Digest struct {
-	Users     `mapstructure:","`
-	UsersFile string
+	Users        `json:"users,omitempty" mapstructure:","`
+	UsersFile    string `json:"usersFile,omitempty"`
+	RemoveHeader bool   `json:"removeHeader,omitempty"`
 }
 
 // Forward authentication
 type Forward struct {
-	Address            string     `description:"Authentication server address"`
-	TLS                *ClientTLS `description:"Enable TLS support" export:"true"`
-	TrustForwardHeader bool       `description:"Trust X-Forwarded-* headers" export:"true"`
+	Address             string     `description:"Authentication server address" json:"address,omitempty"`
+	TLS                 *ClientTLS `description:"Enable TLS support" json:"tls,omitempty" export:"true"`
+	TrustForwardHeader  bool       `description:"Trust X-Forwarded-* headers" json:"trustForwardHeader,omitempty" export:"true"`
+	AuthResponseHeaders []string   `description:"Headers to be forwarded from auth response" json:"authResponseHeaders,omitempty"`
 }
 
 // CanonicalDomain returns a lower case domain with trim space
@@ -435,10 +456,15 @@ type Statsd struct {
 	PushInterval string `description:"StatsD push interval" export:"true"`
 }
 
-// InfluxDB contains address and metrics pushing interval configuration
+// InfluxDB contains address, login and metrics pushing interval configuration
 type InfluxDB struct {
-	Address      string `description:"InfluxDB address"`
-	PushInterval string `description:"InfluxDB push interval"`
+	Address         string `description:"InfluxDB address"`
+	Protocol        string `description:"InfluxDB address protocol (udp or http)"`
+	PushInterval    string `description:"InfluxDB push interval" export:"true"`
+	Database        string `description:"InfluxDB database used when protocol is http" export:"true"`
+	RetentionPolicy string `description:"InfluxDB retention policy used when protocol is http" export:"true"`
+	Username        string `description:"InfluxDB username (only with http)" export:"true"`
+	Password        string `description:"InfluxDB password (only with http)" export:"true"`
 }
 
 // Buckets holds Prometheus Buckets
@@ -476,11 +502,11 @@ func (b *Buckets) SetValue(val interface{}) {
 // ClientTLS holds TLS specific configurations as client
 // CA, Cert and Key can be either path or file contents
 type ClientTLS struct {
-	CA                 string `description:"TLS CA"`
-	CAOptional         bool   `description:"TLS CA.Optional"`
-	Cert               string `description:"TLS cert"`
-	Key                string `description:"TLS key"`
-	InsecureSkipVerify bool   `description:"TLS insecure skip verify"`
+	CA                 string `description:"TLS CA" json:"ca,omitempty"`
+	CAOptional         bool   `description:"TLS CA.Optional" json:"caOptional,omitempty"`
+	Cert               string `description:"TLS cert" json:"cert,omitempty"`
+	Key                string `description:"TLS key" json:"key,omitempty"`
+	InsecureSkipVerify bool   `description:"TLS insecure skip verify" json:"insecureSkipVerify,omitempty"`
 }
 
 // CreateTLSConfig creates a TLS config from ClientTLS structures
@@ -585,4 +611,62 @@ func (h HTTPCodeRanges) Contains(statusCode int) bool {
 		}
 	}
 	return false
+}
+
+// IPStrategy Configuration to choose the IP selection strategy.
+type IPStrategy struct {
+	Depth       int      `json:"depth,omitempty" export:"true"`
+	ExcludedIPs []string `json:"excludedIPs,omitempty"`
+}
+
+// Get an IP selection strategy
+// if nil return the RemoteAddr strategy
+// else return a strategy base on the configuration using the X-Forwarded-For Header.
+// Depth override the ExcludedIPs
+func (s *IPStrategy) Get() (ip.Strategy, error) {
+	if s == nil {
+		return &ip.RemoteAddrStrategy{}, nil
+	}
+
+	if s.Depth > 0 {
+		return &ip.DepthStrategy{
+			Depth: s.Depth,
+		}, nil
+	}
+
+	if len(s.ExcludedIPs) > 0 {
+		checker, err := ip.NewChecker(s.ExcludedIPs)
+		if err != nil {
+			return nil, err
+		}
+		return &ip.CheckerStrategy{
+			Checker: checker,
+		}, nil
+	}
+
+	return &ip.RemoteAddrStrategy{}, nil
+}
+
+// TLSClientHeaders holds the TLS client cert headers configuration.
+type TLSClientHeaders struct {
+	PEM   bool                       `description:"Enable header with escaped client pem" json:"pem"`
+	Infos *TLSClientCertificateInfos `description:"Enable header with configured client cert infos" json:"infos,omitempty"`
+}
+
+// TLSClientCertificateInfos holds the client TLS certificate infos configuration
+type TLSClientCertificateInfos struct {
+	NotAfter  bool                              `description:"Add NotAfter info in header" json:"notAfter"`
+	NotBefore bool                              `description:"Add NotBefore info in header" json:"notBefore"`
+	Subject   *TLSCLientCertificateSubjectInfos `description:"Add Subject info in header" json:"subject,omitempty"`
+	Sans      bool                              `description:"Add Sans info in header" json:"sans"`
+}
+
+// TLSCLientCertificateSubjectInfos holds the client TLS certificate subject infos configuration
+type TLSCLientCertificateSubjectInfos struct {
+	Country      bool `description:"Add Country info in header" json:"country"`
+	Province     bool `description:"Add Province info in header" json:"province"`
+	Locality     bool `description:"Add Locality info in header" json:"locality"`
+	Organization bool `description:"Add Organization info in header" json:"organization"`
+	CommonName   bool `description:"Add CommonName info in header" json:"commonName"`
+	SerialNumber bool `description:"Add SerialNumber info in header" json:"serialNumber"`
 }

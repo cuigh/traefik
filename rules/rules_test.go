@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/containous/mux"
+	"github.com/containous/traefik/middlewares"
 	"github.com/containous/traefik/testhelpers"
 	"github.com/containous/traefik/types"
 	"github.com/stretchr/testify/assert"
@@ -13,65 +14,88 @@ import (
 )
 
 func TestParseOneRule(t *testing.T) {
-	router := mux.NewRouter()
-	route := router.NewRoute()
-	serverRoute := &types.ServerRoute{Route: route}
-	rules := &Rules{Route: serverRoute}
+	reqHostMid := &middlewares.RequestHost{}
+	rules := &Rules{
+		Route: &types.ServerRoute{
+			Route: mux.NewRouter().NewRoute(),
+		},
+	}
 
 	expression := "Host:foo.bar"
+
 	routeResult, err := rules.Parse(expression)
 	require.NoError(t, err, "Error while building route for %s", expression)
 
 	request := testhelpers.MustNewRequest(http.MethodGet, "http://foo.bar", nil)
-	routeMatch := routeResult.Match(request, &mux.RouteMatch{Route: routeResult})
 
-	assert.True(t, routeMatch, "Rule %s don't match.", expression)
+	reqHostMid.ServeHTTP(nil, request, func(w http.ResponseWriter, r *http.Request) {
+		routeMatch := routeResult.Match(r, &mux.RouteMatch{Route: routeResult})
+		assert.True(t, routeMatch, "Rule %s don't match.", expression)
+	})
 }
 
 func TestParseTwoRules(t *testing.T) {
-	router := mux.NewRouter()
-	route := router.NewRoute()
-	serverRoute := &types.ServerRoute{Route: route}
-	rules := &Rules{Route: serverRoute}
+	reqHostMid := &middlewares.RequestHost{}
+	rules := &Rules{
+		Route: &types.ServerRoute{
+			Route: mux.NewRouter().NewRoute(),
+		},
+	}
 
 	expression := "Host: Foo.Bar ; Path:/FOObar"
-	routeResult, err := rules.Parse(expression)
 
+	routeResult, err := rules.Parse(expression)
 	require.NoError(t, err, "Error while building route for %s.", expression)
 
 	request := testhelpers.MustNewRequest(http.MethodGet, "http://foo.bar/foobar", nil)
-	routeMatch := routeResult.Match(request, &mux.RouteMatch{Route: routeResult})
-
-	assert.False(t, routeMatch, "Rule %s don't match.", expression)
+	reqHostMid.ServeHTTP(nil, request, func(w http.ResponseWriter, r *http.Request) {
+		routeMatch := routeResult.Match(r, &mux.RouteMatch{Route: routeResult})
+		assert.False(t, routeMatch, "Rule %s don't match.", expression)
+	})
 
 	request = testhelpers.MustNewRequest(http.MethodGet, "http://foo.bar/FOObar", nil)
-	routeMatch = routeResult.Match(request, &mux.RouteMatch{Route: routeResult})
-
-	assert.True(t, routeMatch, "Rule %s don't match.", expression)
+	reqHostMid.ServeHTTP(nil, request, func(w http.ResponseWriter, r *http.Request) {
+		routeMatch := routeResult.Match(r, &mux.RouteMatch{Route: routeResult})
+		assert.True(t, routeMatch, "Rule %s don't match.", expression)
+	})
 }
 
 func TestParseDomains(t *testing.T) {
 	rules := &Rules{}
 
 	tests := []struct {
-		expression string
-		domain     []string
+		description   string
+		expression    string
+		domain        []string
+		errorExpected bool
 	}{
 		{
-			expression: "Host:foo.bar,test.bar",
-			domain:     []string{"foo.bar", "test.bar"},
+			description:   "Many host rules",
+			expression:    "Host:foo.bar,test.bar",
+			domain:        []string{"foo.bar", "test.bar"},
+			errorExpected: false,
 		},
 		{
-			expression: "Path:/test",
-			domain:     []string{},
+			description:   "No host rule",
+			expression:    "Path:/test",
+			errorExpected: false,
 		},
 		{
-			expression: "Host:foo.bar;Path:/test",
-			domain:     []string{"foo.bar"},
+			description:   "Host rule and another rule",
+			expression:    "Host:foo.bar;Path:/test",
+			domain:        []string{"foo.bar"},
+			errorExpected: false,
 		},
 		{
-			expression: "Host: Foo.Bar ;Path:/test",
-			domain:     []string{"foo.bar"},
+			description:   "Host rule to trim and another rule",
+			expression:    "Host: Foo.Bar ;Path:/test",
+			domain:        []string{"foo.bar"},
+			errorExpected: false,
+		},
+		{
+			description:   "Host rule with no domain",
+			expression:    "Host: ;Path:/test",
+			errorExpected: true,
 		},
 	}
 
@@ -81,7 +105,12 @@ func TestParseDomains(t *testing.T) {
 			t.Parallel()
 
 			domains, err := rules.ParseDomains(test.expression)
-			require.NoError(t, err, "%s: Error while parsing domain.", test.expression)
+
+			if test.errorExpected {
+				require.Errorf(t, err, "unable to parse correctly the domains in the Host rule from %q", test.expression)
+			} else {
+				require.NoError(t, err, "%s: Error while parsing domain.", test.expression)
+			}
 
 			assert.EqualValues(t, test.domain, domains, "%s: Error parsing domains from expression.", test.expression)
 		})
@@ -91,6 +120,7 @@ func TestParseDomains(t *testing.T) {
 func TestPriorites(t *testing.T) {
 	router := mux.NewRouter()
 	router.StrictSlash(true)
+
 	rules := &Rules{Route: &types.ServerRoute{Route: router.NewRoute()}}
 	expression01 := "PathPrefix:/foo"
 

@@ -37,6 +37,11 @@ Træfik can be configured with a file.
       path = "/health"
       port = 88
       interval = "30s"
+      scheme = "http"
+      hostname = "myhost.com"
+      [backends.backend1.healthcheck.headers]
+        My-Custom-Header = "foo"
+        My-Header = "bar"
 
   [backends.backend2]
     # ...
@@ -48,16 +53,56 @@ Træfik can be configured with a file.
     entryPoints = ["http", "https"]
     backend = "backend1"
     passHostHeader = true
-    passTLSCert = true
     priority = 42
-    basicAuth = [
-      "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
-      "test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
-    ]
+
+    [frontends.frontend1.passTLSClientCert]
+        # Pass the escaped pem in a `X-Forwarded-Ssl-Client-Cert` header
+        pem = true
+        # Pass the escaped client cert infos selected below in a `X-Forwarded-Ssl-Client-Cert-Infos` header
+        # The unescaped header is like `Subject="C=%s,ST=%s,L=%s,O=%s,CN=%s",NB=%d,NA=%d,SAN=%s`
+        # It there is more than one certificates, their are separated by a `;`
+        [frontends.frontend-server.passTLSClientCert.infos]
+            notBefore = true
+            notAfter = true
+            [frontends.frontend-server.passTLSClientCert.infos.subject]
+                country = true
+                province = true
+                locality = true
+                organization = true
+                commonName = true
+                serialNumber = true
+    [frontends.frontend1.auth]
+      headerField = "X-WebAuth-User"
+      [frontends.frontend1.auth.basic]
+        removeHeader = true
+        users = [
+          "test:$apr1$H6uskkkW$IgXLP6ewTrSuBkTrqE8wj/",
+          "test2:$apr1$d9hr9HBB$4HxwgUir3HP4EsggP/QNo0",
+        ]
+        usersFile = "/path/to/.htpasswd"
+      [frontends.frontend1.auth.digest]
+        removeHeader = true
+        users = [
+          "test:traefik:a2688e031edb4be6a3797f3882655c05",
+          "test2:traefik:518845800f9e2bfb1f1f740ec24f074e",
+        ]
+        usersFile = "/path/to/.htdigest"
+      [frontends.frontend1.auth.forward]
+        address = "https://authserver.com/auth"
+        trustForwardHeader = true
+        authResponseHeaders = ["X-Auth-User"]
+        [frontends.frontend1.auth.forward.tls]
+          ca = "path/to/local.crt"
+          caOptional = true
+          cert = "path/to/foo.cert"
+          key = "path/to/foo.key"
+          insecureSkipVerify = true
 
     [frontends.frontend1.whiteList]
       sourceRange = ["10.42.0.0/16", "152.89.1.33/32", "afed:be44::/16"]
-      useXForwardedFor = true
+      [frontends.frontend1.whiteList.IPStrategy]
+        depth = 6
+        excludedIPs = ["152.89.1.33/32", "afed:be44::/16"]
 
     [frontends.frontend1.routes]
       [frontends.frontend1.routes.route0]

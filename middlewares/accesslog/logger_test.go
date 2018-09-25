@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/containous/flaeg/parse"
+	"github.com/containous/traefik/log"
 	"github.com/containous/traefik/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +37,7 @@ var (
 	testReferer             = "testReferer"
 	testUserAgent           = "testUserAgent"
 	testRetryAttempts       = 2
+	testStart               = time.Now()
 )
 
 func TestLogRotation(t *testing.T) {
@@ -130,6 +133,21 @@ func TestLoggerCLF(t *testing.T) {
 	assertValidLogData(t, expectedLog, logData)
 }
 
+func TestAsyncLoggerCLF(t *testing.T) {
+	tmpDir := createTempDir(t, CommonFormat)
+	defer os.RemoveAll(tmpDir)
+
+	logFilePath := filepath.Join(tmpDir, logFileNameSuffix)
+	config := &types.AccessLog{FilePath: logFilePath, Format: CommonFormat, BufferingSize: 1024}
+	doLogging(t, config)
+
+	logData, err := ioutil.ReadFile(logFilePath)
+	require.NoError(t, err)
+
+	expectedLog := ` TestHost - TestUser [13/Apr/2016:07:14:19 -0700] "POST testpath HTTP/0.0" 123 12 "testReferer" "testUserAgent" 1 "testFrontend" "http://127.0.0.1/testBackend" 1ms`
+	assertValidLogData(t, expectedLog, logData)
+}
+
 func assertString(exp string) func(t *testing.T, actual interface{}) {
 	return func(t *testing.T, actual interface{}) {
 		t.Helper()
@@ -175,28 +193,26 @@ func TestLoggerJSON(t *testing.T) {
 				Format:   JSONFormat,
 			},
 			expected: map[string]func(t *testing.T, value interface{}){
-				RequestHost:            assertString(testHostname),
-				RequestAddr:            assertString(testHostname),
-				RequestMethod:          assertString(testMethod),
-				RequestPath:            assertString(testPath),
-				RequestProtocol:        assertString(testProto),
-				RequestPort:            assertString("-"),
-				RequestLine:            assertString(fmt.Sprintf("%s %s %s", testMethod, testPath, testProto)),
-				DownstreamStatus:       assertFloat64(float64(testStatus)),
-				DownstreamStatusLine:   assertString(fmt.Sprintf("%d ", testStatus)),
-				DownstreamContentSize:  assertFloat64(float64(len(testContent))),
-				OriginContentSize:      assertFloat64(float64(len(testContent))),
-				OriginStatus:           assertFloat64(float64(testStatus)),
-				RequestRefererHeader:   assertString(testReferer),
-				RequestUserAgentHeader: assertString(testUserAgent),
-				FrontendName:           assertString(testFrontendName),
-				BackendURL:             assertString(testBackendName),
-				ClientUsername:         assertString(testUsername),
-				ClientHost:             assertString(testHostname),
-				ClientPort:             assertString(fmt.Sprintf("%d", testPort)),
-				ClientAddr:             assertString(fmt.Sprintf("%s:%d", testHostname, testPort)),
-				"level":                assertString("info"),
-				"msg":                  assertString(""),
+				RequestHost:               assertString(testHostname),
+				RequestAddr:               assertString(testHostname),
+				RequestMethod:             assertString(testMethod),
+				RequestPath:               assertString(testPath),
+				RequestProtocol:           assertString(testProto),
+				RequestPort:               assertString("-"),
+				DownstreamStatus:          assertFloat64(float64(testStatus)),
+				DownstreamContentSize:     assertFloat64(float64(len(testContent))),
+				OriginContentSize:         assertFloat64(float64(len(testContent))),
+				OriginStatus:              assertFloat64(float64(testStatus)),
+				RequestRefererHeader:      assertString(testReferer),
+				RequestUserAgentHeader:    assertString(testUserAgent),
+				FrontendName:              assertString(testFrontendName),
+				BackendURL:                assertString(testBackendName),
+				ClientUsername:            assertString(testUsername),
+				ClientHost:                assertString(testHostname),
+				ClientPort:                assertString(fmt.Sprintf("%d", testPort)),
+				ClientAddr:                assertString(fmt.Sprintf("%s:%d", testHostname, testPort)),
+				"level":                   assertString("info"),
+				"msg":                     assertString(""),
 				"downstream_Content-Type": assertString("text/plain; charset=utf-8"),
 				RequestCount:              assertFloat64NotZero(),
 				Duration:                  assertFloat64NotZero(),
@@ -217,9 +233,9 @@ func TestLoggerJSON(t *testing.T) {
 				},
 			},
 			expected: map[string]func(t *testing.T, value interface{}){
-				"level": assertString("info"),
-				"msg":   assertString(""),
-				"time":  assertNotEqual(""),
+				"level":                   assertString("info"),
+				"msg":                     assertString(""),
+				"time":                    assertNotEqual(""),
 				"downstream_Content-Type": assertString("text/plain; charset=utf-8"),
 				RequestRefererHeader:      assertString(testReferer),
 				RequestUserAgentHeader:    assertString(testUserAgent),
@@ -256,9 +272,9 @@ func TestLoggerJSON(t *testing.T) {
 				},
 			},
 			expected: map[string]func(t *testing.T, value interface{}){
-				"level": assertString("info"),
-				"msg":   assertString(""),
-				"time":  assertNotEqual(""),
+				"level":                   assertString("info"),
+				"msg":                     assertString(""),
+				"time":                    assertNotEqual(""),
 				"downstream_Content-Type": assertString("REDACTED"),
 				RequestRefererHeader:      assertString("REDACTED"),
 				RequestUserAgentHeader:    assertString("REDACTED"),
@@ -362,6 +378,28 @@ func TestNewLogHandlerOutputStdout(t *testing.T) {
 				Format:   CommonFormat,
 				Filters: &types.AccessLogFilters{
 					StatusCodes: []string{"123"},
+				},
+			},
+			expectedLog: `TestHost - TestUser [13/Apr/2016:07:14:19 -0700] "POST testpath HTTP/0.0" 123 12 "testReferer" "testUserAgent" 23 "testFrontend" "http://127.0.0.1/testBackend" 1ms`,
+		},
+		{
+			desc: "Duration filter not matching",
+			config: &types.AccessLog{
+				FilePath: "",
+				Format:   CommonFormat,
+				Filters: &types.AccessLogFilters{
+					MinDuration: parse.Duration(1 * time.Hour),
+				},
+			},
+			expectedLog: ``,
+		},
+		{
+			desc: "Duration filter matching",
+			config: &types.AccessLog{
+				FilePath: "",
+				Format:   CommonFormat,
+				Filters: &types.AccessLogFilters{
+					MinDuration: parse.Duration(1 * time.Millisecond),
 				},
 			},
 			expectedLog: `TestHost - TestUser [13/Apr/2016:07:14:19 -0700] "POST testpath HTTP/0.0" 123 12 "testReferer" "testUserAgent" 23 "testFrontend" "http://127.0.0.1/testBackend" 1ms`,
@@ -506,32 +544,37 @@ func TestNewLogHandlerOutputStdout(t *testing.T) {
 }
 
 func assertValidLogData(t *testing.T, expected string, logData []byte) {
-	if len(expected) > 0 {
-		result, err := ParseAccessLog(string(logData))
-		require.NoError(t, err)
 
-		resultExpected, err := ParseAccessLog(expected)
-		require.NoError(t, err)
-
-		formatErrMessage := fmt.Sprintf(`
-		Expected: %s
-		Actual:   %s`, expected, string(logData))
-
-		require.Equal(t, len(resultExpected), len(result), formatErrMessage)
-		assert.Equal(t, resultExpected[ClientHost], result[ClientHost], formatErrMessage)
-		assert.Equal(t, resultExpected[ClientUsername], result[ClientUsername], formatErrMessage)
-		assert.Equal(t, resultExpected[RequestMethod], result[RequestMethod], formatErrMessage)
-		assert.Equal(t, resultExpected[RequestPath], result[RequestPath], formatErrMessage)
-		assert.Equal(t, resultExpected[RequestProtocol], result[RequestProtocol], formatErrMessage)
-		assert.Equal(t, resultExpected[OriginStatus], result[OriginStatus], formatErrMessage)
-		assert.Equal(t, resultExpected[OriginContentSize], result[OriginContentSize], formatErrMessage)
-		assert.Equal(t, resultExpected[RequestRefererHeader], result[RequestRefererHeader], formatErrMessage)
-		assert.Equal(t, resultExpected[RequestUserAgentHeader], result[RequestUserAgentHeader], formatErrMessage)
-		assert.Regexp(t, regexp.MustCompile("[0-9]*"), result[RequestCount], formatErrMessage)
-		assert.Equal(t, resultExpected[FrontendName], result[FrontendName], formatErrMessage)
-		assert.Equal(t, resultExpected[BackendURL], result[BackendURL], formatErrMessage)
-		assert.Regexp(t, regexp.MustCompile("[0-9]*ms"), result[Duration], formatErrMessage)
+	if len(expected) == 0 {
+		assert.Zero(t, len(logData))
+		t.Log(string(logData))
+		return
 	}
+
+	result, err := ParseAccessLog(string(logData))
+	require.NoError(t, err)
+
+	resultExpected, err := ParseAccessLog(expected)
+	require.NoError(t, err)
+
+	formatErrMessage := fmt.Sprintf(`
+	Expected: %s
+	Actual:   %s`, expected, string(logData))
+
+	require.Equal(t, len(resultExpected), len(result), formatErrMessage)
+	assert.Equal(t, resultExpected[ClientHost], result[ClientHost], formatErrMessage)
+	assert.Equal(t, resultExpected[ClientUsername], result[ClientUsername], formatErrMessage)
+	assert.Equal(t, resultExpected[RequestMethod], result[RequestMethod], formatErrMessage)
+	assert.Equal(t, resultExpected[RequestPath], result[RequestPath], formatErrMessage)
+	assert.Equal(t, resultExpected[RequestProtocol], result[RequestProtocol], formatErrMessage)
+	assert.Equal(t, resultExpected[OriginStatus], result[OriginStatus], formatErrMessage)
+	assert.Equal(t, resultExpected[OriginContentSize], result[OriginContentSize], formatErrMessage)
+	assert.Equal(t, resultExpected[RequestRefererHeader], result[RequestRefererHeader], formatErrMessage)
+	assert.Equal(t, resultExpected[RequestUserAgentHeader], result[RequestUserAgentHeader], formatErrMessage)
+	assert.Regexp(t, regexp.MustCompile("[0-9]*"), result[RequestCount], formatErrMessage)
+	assert.Equal(t, resultExpected[FrontendName], result[FrontendName], formatErrMessage)
+	assert.Equal(t, resultExpected[BackendURL], result[BackendURL], formatErrMessage)
+	assert.Regexp(t, regexp.MustCompile("[0-9]*ms"), result[Duration], formatErrMessage)
 }
 
 func captureStdout(t *testing.T) (out *os.File, restoreStdout func()) {
@@ -584,7 +627,10 @@ func doLogging(t *testing.T, config *types.AccessLog) {
 }
 
 func logWriterTestHandlerFunc(rw http.ResponseWriter, r *http.Request) {
-	rw.Write([]byte(testContent))
+	if _, err := rw.Write([]byte(testContent)); err != nil {
+		log.Error(err)
+	}
+
 	rw.WriteHeader(testStatus)
 
 	logDataTable := GetLogDataTable(r)
@@ -593,4 +639,6 @@ func logWriterTestHandlerFunc(rw http.ResponseWriter, r *http.Request) {
 	logDataTable.Core[OriginStatus] = testStatus
 	logDataTable.Core[OriginContentSize] = testContentSize
 	logDataTable.Core[RetryAttempts] = testRetryAttempts
+	logDataTable.Core[StartUTC] = testStart.UTC()
+	logDataTable.Core[StartLocal] = testStart.Local()
 }

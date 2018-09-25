@@ -20,7 +20,7 @@ func NewCmd(traefikConfiguration *cmd.TraefikConfiguration, traefikPointersConfi
 		Description:           `Calls traefik /ping to check health (web provider must be enabled)`,
 		Config:                traefikConfiguration,
 		DefaultPointersConfig: traefikPointersConfiguration,
-		Run: runCmd(traefikConfiguration),
+		Run:                   runCmd(traefikConfiguration),
 		Metadata: map[string]string{
 			"parseAllSources": "true",
 		},
@@ -66,8 +66,6 @@ func Do(globalConfiguration configuration.GlobalConfiguration) (*http.Response, 
 		client.Transport = tr
 	}
 	path := "/"
-	if globalConfiguration.Web != nil {
-		path = globalConfiguration.Web.Path
-	}
+
 	return client.Head(protocol + "://" + pingEntryPoint.Address + path + "ping")
 }

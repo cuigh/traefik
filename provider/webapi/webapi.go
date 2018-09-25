@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	"github.com/cenk/backoff"
+	"github.com/containous/flaeg/parse"
+	"github.com/containous/traefik/job"
 	"github.com/containous/traefik/safe"
 	"github.com/containous/traefik/types"
-	"github.com/cenk/backoff"
-	"github.com/containous/traefik/job"
-	"github.com/containous/flaeg/parse"
+	"github.com/sirupsen/logrus"
 )
 
 // Provider holds configurations of the Provider provider.
@@ -25,9 +25,14 @@ type Provider struct {
 	version       int
 }
 
+// Init the provider
+func (p *Provider) Init(_ types.Constraints) error {
+	return nil
+}
+
 // Provide allows the provider to provide configurations to traefik
 // using the given configuration channel.
-func (p *Provider) Provide(configurationChan chan<- types.ConfigMessage, pool *safe.Pool, _ types.Constraints) error {
+func (p *Provider) Provide(configurationChan chan<- types.ConfigMessage, pool *safe.Pool) error {
 	logrus.Infof("webapi > {Endpoint: %s, Watch: %v, Cluster: %s, CheckInterval: %v}",
 		p.Endpoint, p.Watch, p.Cluster, p.CheckInterval)
 

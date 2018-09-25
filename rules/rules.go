@@ -3,31 +3,49 @@ package rules
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"reflect"
 	"sort"
 	"strings"
 
-	"github.com/BurntSushi/ty/fun"
 	"github.com/containous/mux"
+	"github.com/containous/traefik/hostresolver"
+	"github.com/containous/traefik/log"
+	"github.com/containous/traefik/middlewares"
 	"github.com/containous/traefik/types"
 )
 
 // Rules holds rule parsing and configuration
 type Rules struct {
-	Route *types.ServerRoute
-	err   error
+	Route        *types.ServerRoute
+	err          error
+	HostResolver *hostresolver.Resolver
 }
 
 func (r *Rules) host(hosts ...string) *mux.Route {
+	for i, host := range hosts {
+		hosts[i] = strings.ToLower(host)
+	}
+
 	return r.Route.Route.MatcherFunc(func(req *http.Request, route *mux.RouteMatch) bool {
-		reqHost, _, err := net.SplitHostPort(req.Host)
-		if err != nil {
-			reqHost = req.Host
+		reqHost := middlewares.GetCanonizedHost(req.Context())
+		if len(reqHost) == 0 {
+			return false
 		}
+
+		if r.HostResolver != nil && r.HostResolver.CnameFlattening {
+			reqH, flatH := r.HostResolver.CNAMEFlatten(reqHost)
+			for _, host := range hosts {
+				if strings.EqualFold(reqH, host) || strings.EqualFold(flatH, host) {
+					return true
+				}
+				log.Debugf("CNAMEFlattening: request %s which resolved to %s, is not matched to route %s", reqH, flatH, host)
+			}
+			return false
+		}
+
 		for _, host := range hosts {
-			if types.CanonicalDomain(reqHost) == types.CanonicalDomain(host) {
+			if reqHost == host {
 				return true
 			}
 		}
@@ -38,7 +56,7 @@ func (r *Rules) host(hosts ...string) *mux.Route {
 func (r *Rules) hostRegexp(hosts ...string) *mux.Route {
 	router := r.Route.Route.Subrouter()
 	for _, host := range hosts {
-		router.Host(types.CanonicalDomain(host))
+		router.Host(strings.ToLower(host))
 	}
 	return r.Route.Route
 }
@@ -46,7 +64,7 @@ func (r *Rules) hostRegexp(hosts ...string) *mux.Route {
 func (r *Rules) path(paths ...string) *mux.Route {
 	router := r.Route.Route.Subrouter()
 	for _, path := range paths {
-		router.Path(strings.TrimSpace(path))
+		router.Path(path)
 	}
 	return r.Route.Route
 }
@@ -60,14 +78,13 @@ func (r *Rules) pathPrefix(paths ...string) *mux.Route {
 }
 
 func buildPath(path string, router *mux.Router) {
-	cleanPath := strings.TrimSpace(path)
 	// {} are used to define a regex pattern in http://www.gorillatoolkit.org/pkg/mux.
 	// if we find a { in the path, that means we use regex, then the gorilla/mux implementation is chosen
 	// otherwise, we use a lightweight implementation
-	if strings.Contains(cleanPath, "{") {
-		router.PathPrefix(cleanPath)
+	if strings.Contains(path, "{") {
+		router.PathPrefix(path)
 	} else {
-		m := &prefixMatcher{prefix: cleanPath}
+		m := &prefixMatcher{prefix: path}
 		router.NewRoute().MatcherFunc(m.Match)
 	}
 }
@@ -101,7 +118,7 @@ func (r *Rules) pathStripRegex(paths ...string) *mux.Route {
 	r.Route.StripPrefixesRegex = paths
 	router := r.Route.Route.Subrouter()
 	for _, path := range paths {
-		router.Path(strings.TrimSpace(path))
+		router.Path(path)
 	}
 	return r.Route.Route
 }
@@ -142,7 +159,7 @@ func (r *Rules) pathPrefixStripRegex(paths ...string) *mux.Route {
 	r.Route.StripPrefixesRegex = paths
 	router := r.Route.Route.Subrouter()
 	for _, path := range paths {
-		router.PathPrefix(strings.TrimSpace(path))
+		router.PathPrefix(path)
 	}
 	return r.Route.Route
 }
@@ -270,9 +287,11 @@ func (r *Rules) Parse(expression string) (*mux.Route, error) {
 // ParseDomains parses rules expressions and returns domains
 func (r *Rules) ParseDomains(expression string) ([]string, error) {
 	var domains []string
+	isHostRule := false
 
 	err := r.parseRules(expression, func(functionName string, function interface{}, arguments []string) error {
 		if functionName == "Host" {
+			isHostRule = true
 			domains = append(domains, arguments...)
 		}
 		return nil
@@ -281,5 +300,18 @@ func (r *Rules) ParseDomains(expression string) ([]string, error) {
 		return nil, fmt.Errorf("error parsing domains: %v", err)
 	}
 
-	return fun.Map(types.CanonicalDomain, domains).([]string), nil
+	var cleanDomains []string
+	for _, domain := range domains {
+		canonicalDomain := strings.ToLower(domain)
+		if len(canonicalDomain) > 0 {
+			cleanDomains = append(cleanDomains, canonicalDomain)
+		}
+	}
+
+	// Return an error if an Host rule is detected but no domain are parsed
+	if isHostRule && len(cleanDomains) == 0 {
+		return nil, fmt.Errorf("unable to parse correctly the domains in the Host rule from %q", expression)
+	}
+
+	return cleanDomains, nil
 }

@@ -85,21 +85,31 @@ func Run(kv *staert.KvSource, traefikConfiguration *cmd.TraefikConfiguration) fu
 				}
 			}
 
-			// Store the ACME Account into the KV Store
-			meta := cluster.NewMetadata(account)
-			err = meta.Marshall()
+			accountInitialized, err := keyExists(kv, traefikConfiguration.GlobalConfiguration.ACME.Storage)
 			if err != nil {
 				return err
 			}
 
-			source := staert.KvSource{
-				Store:  kv,
-				Prefix: traefikConfiguration.GlobalConfiguration.ACME.Storage,
-			}
+			// Check to see if ACME account object is already in kv store
+			if traefikConfiguration.GlobalConfiguration.ACME.OverrideCertificates || !accountInitialized {
 
-			err = source.StoreConfig(meta)
-			if err != nil {
-				return err
+				// Store the ACME Account into the KV Store
+				// Certificates in KV Store will be overridden
+				meta := cluster.NewMetadata(account)
+				err = meta.Marshall()
+				if err != nil {
+					return err
+				}
+
+				source := staert.KvSource{
+					Store:  kv,
+					Prefix: traefikConfiguration.GlobalConfiguration.ACME.Storage,
+				}
+
+				err = source.StoreConfig(meta)
+				if err != nil {
+					return err
+				}
 			}
 
 			// Force to delete storagefile
@@ -107,6 +117,15 @@ func Run(kv *staert.KvSource, traefikConfiguration *cmd.TraefikConfiguration) fu
 		}
 		return nil
 	}
+}
+
+func keyExists(source *staert.KvSource, key string) (bool, error) {
+	list, err := source.List(key, nil)
+	if err != nil {
+		return false, err
+	}
+
+	return len(list) > 0, nil
 }
 
 // migrateACMEData allows migrating data from acme.json file to KV store in function of the file format

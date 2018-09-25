@@ -14,7 +14,7 @@ import (
 	"github.com/containous/traefik/types"
 )
 
-func (p *Provider) buildConfigurationV2(services []rancherData) *types.Configuration {
+func (p *Provider) buildConfiguration(services []rancherData) *types.Configuration {
 	var RancherFuncMap = template.FuncMap{
 		"getLabelValue": label.GetStringValue,
 		"getDomain":     label.GetFuncString(label.TraefikDomain, p.Domain),
@@ -28,18 +28,20 @@ func (p *Provider) buildConfigurationV2(services []rancherData) *types.Configura
 		"getServers":        getServers,
 
 		// Frontend functions
-		"getBackendName":    getBackendName,
-		"getFrontendRule":   p.getFrontendRule,
-		"getPriority":       label.GetFuncInt(label.TraefikFrontendPriority, label.DefaultFrontendPriority),
-		"getPassHostHeader": label.GetFuncBool(label.TraefikFrontendPassHostHeader, label.DefaultPassHostHeader),
-		"getPassTLSCert":    label.GetFuncBool(label.TraefikFrontendPassTLSCert, label.DefaultPassTLSCert),
-		"getEntryPoints":    label.GetFuncSliceString(label.TraefikFrontendEntryPoints),
-		"getBasicAuth":      label.GetFuncSliceString(label.TraefikFrontendAuthBasic),
-		"getErrorPages":     label.GetErrorPages,
-		"getRateLimit":      label.GetRateLimit,
-		"getRedirect":       label.GetRedirect,
-		"getHeaders":        label.GetHeaders,
-		"getWhiteList":      label.GetWhiteList,
+		"getBackendName":       getBackendName,
+		"getFrontendRule":      p.getFrontendRule,
+		"getPriority":          label.GetFuncInt(label.TraefikFrontendPriority, label.DefaultFrontendPriority),
+		"getPassHostHeader":    label.GetFuncBool(label.TraefikFrontendPassHostHeader, label.DefaultPassHostHeader),
+		"getPassTLSCert":       label.GetFuncBool(label.TraefikFrontendPassTLSCert, label.DefaultPassTLSCert),
+		"getPassTLSClientCert": label.GetTLSClientCert,
+		"getEntryPoints":       label.GetFuncSliceString(label.TraefikFrontendEntryPoints),
+		"getBasicAuth":         label.GetFuncSliceString(label.TraefikFrontendAuthBasic), // Deprecated
+		"getAuth":              label.GetAuth,
+		"getErrorPages":        label.GetErrorPages,
+		"getRateLimit":         label.GetRateLimit,
+		"getRedirect":          label.GetRedirect,
+		"getHeaders":           label.GetHeaders,
+		"getWhiteList":         label.GetWhiteList,
 	}
 
 	// filter services

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/containous/flaeg"
+	"github.com/containous/flaeg/parse"
 	"github.com/containous/traefik/acme"
 	"github.com/containous/traefik/configuration"
 	"github.com/containous/traefik/provider"
@@ -33,15 +33,12 @@ func TestDo_globalConfiguration(t *testing.T) {
 
 	config := &configuration.GlobalConfiguration{}
 
-	config.GraceTimeOut = flaeg.Duration(666 * time.Second)
 	config.Debug = true
 	config.CheckNewVersion = true
-	config.AccessLogsFile = "AccessLogsFile"
 	config.AccessLog = &types.AccessLog{
 		FilePath: "AccessLog FilePath",
 		Format:   "AccessLog Format",
 	}
-	config.TraefikLogsFile = "TraefikLogsFile"
 	config.LogLevel = "LogLevel"
 	config.EntryPoints = configuration.EntryPoints{
 		"foo": {
@@ -54,7 +51,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					{CertFile: "CertFile 2", KeyFile: "KeyFile 2"},
 				},
 				ClientCA: traefiktls.ClientCA{
-					Files:    []string{"foo ClientCAFiles 1", "foo ClientCAFiles 2", "foo ClientCAFiles 3"},
+					Files:    traefiktls.FilesOrContents{"foo ClientCAFiles 1", "foo ClientCAFiles 2", "foo ClientCAFiles 3"},
 					Optional: false,
 				},
 			},
@@ -83,8 +80,12 @@ func TestDo_globalConfiguration(t *testing.T) {
 					TrustForwardHeader: true,
 				},
 			},
-			WhitelistSourceRange: []string{"foo WhitelistSourceRange 1", "foo WhitelistSourceRange 2", "foo WhitelistSourceRange 3"},
-			Compress:             true,
+			WhiteList: &types.WhiteList{
+				SourceRange: []string{
+					"127.0.0.1/32",
+				},
+			},
+			Compress: &configuration.Compress{},
 			ProxyProtocol: &configuration.ProxyProtocol{
 				TrustedIPs: []string{"127.0.0.1/32", "192.168.0.1"},
 			},
@@ -99,7 +100,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					{CertFile: "CertFile 2", KeyFile: "KeyFile 2"},
 				},
 				ClientCA: traefiktls.ClientCA{
-					Files:    []string{"fii ClientCAFiles 1", "fii ClientCAFiles 2", "fii ClientCAFiles 3"},
+					Files:    traefiktls.FilesOrContents{"fii ClientCAFiles 1", "fii ClientCAFiles 2", "fii ClientCAFiles 3"},
 					Optional: false,
 				},
 			},
@@ -128,8 +129,12 @@ func TestDo_globalConfiguration(t *testing.T) {
 					TrustForwardHeader: true,
 				},
 			},
-			WhitelistSourceRange: []string{"fii WhitelistSourceRange 1", "fii WhitelistSourceRange 2", "fii WhitelistSourceRange 3"},
-			Compress:             true,
+			WhiteList: &types.WhiteList{
+				SourceRange: []string{
+					"127.0.0.1/32",
+				},
+			},
+			Compress: &configuration.Compress{},
 			ProxyProtocol: &configuration.ProxyProtocol{
 				TrustedIPs: []string{"127.0.0.1/32", "192.168.0.1"},
 			},
@@ -177,25 +182,24 @@ func TestDo_globalConfiguration(t *testing.T) {
 		},
 	}
 	config.DefaultEntryPoints = configuration.DefaultEntryPoints{"DefaultEntryPoints 1", "DefaultEntryPoints 2", "DefaultEntryPoints 3"}
-	config.ProvidersThrottleDuration = flaeg.Duration(666 * time.Second)
+	config.ProvidersThrottleDuration = parse.Duration(666 * time.Second)
 	config.MaxIdleConnsPerHost = 666
-	config.IdleTimeout = flaeg.Duration(666 * time.Second)
 	config.InsecureSkipVerify = true
-	config.RootCAs = traefiktls.RootCAs{"RootCAs 1", "RootCAs 2", "RootCAs 3"}
+	config.RootCAs = traefiktls.FilesOrContents{"RootCAs 1", "RootCAs 2", "RootCAs 3"}
 	config.Retry = &configuration.Retry{
 		Attempts: 666,
 	}
 	config.HealthCheck = &configuration.HealthCheckConfig{
-		Interval: flaeg.Duration(666 * time.Second),
+		Interval: parse.Duration(666 * time.Second),
 	}
 	config.RespondingTimeouts = &configuration.RespondingTimeouts{
-		ReadTimeout:  flaeg.Duration(666 * time.Second),
-		WriteTimeout: flaeg.Duration(666 * time.Second),
-		IdleTimeout:  flaeg.Duration(666 * time.Second),
+		ReadTimeout:  parse.Duration(666 * time.Second),
+		WriteTimeout: parse.Duration(666 * time.Second),
+		IdleTimeout:  parse.Duration(666 * time.Second),
 	}
 	config.ForwardingTimeouts = &configuration.ForwardingTimeouts{
-		DialTimeout:           flaeg.Duration(666 * time.Second),
-		ResponseHeaderTimeout: flaeg.Duration(666 * time.Second),
+		DialTimeout:           parse.Duration(666 * time.Second),
+		ResponseHeaderTimeout: parse.Duration(666 * time.Second),
 	}
 	config.Docker = &docker.Provider{
 		BaseProvider: provider.BaseProvider{
@@ -213,7 +217,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Endpoint: "docker Endpoint",
@@ -244,54 +248,10 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Directory: "file Directory",
-	}
-	config.Web = &configuration.WebCompatibility{
-		Address:  "web Address",
-		CertFile: "web CertFile",
-		KeyFile:  "web KeyFile",
-		ReadOnly: true,
-		Statistics: &types.Statistics{
-			RecentErrors: 666,
-		},
-		Metrics: &types.Metrics{
-			Prometheus: &types.Prometheus{
-				Buckets: types.Buckets{6.5, 6.6, 6.7},
-			},
-			Datadog: &types.Datadog{
-				Address:      "Datadog Address",
-				PushInterval: "Datadog PushInterval",
-			},
-			StatsD: &types.Statsd{
-				Address:      "StatsD Address",
-				PushInterval: "StatsD PushInterval",
-			},
-		},
-		Path: "web Path",
-		Auth: &types.Auth{
-			Basic: &types.Basic{
-				UsersFile: "web Basic UsersFile",
-				Users:     types.Users{"web Basic Users 1", "web Basic Users 2", "web Basic Users 3"},
-			},
-			Digest: &types.Digest{
-				UsersFile: "web Digest UsersFile",
-				Users:     types.Users{"web Digest Users 1", "web Digest Users 2", "web Digest Users 3"},
-			},
-			Forward: &types.Forward{
-				Address: "web Address",
-				TLS: &types.ClientTLS{
-					CA:                 "web CA",
-					Cert:               "web Cert",
-					Key:                "web Key",
-					InsecureSkipVerify: true,
-				},
-				TrustForwardHeader: true,
-			},
-		},
-		Debug: true,
 	}
 	config.Marathon = &marathon.Provider{
 		BaseProvider: provider.BaseProvider{
@@ -309,7 +269,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Endpoint:                "",
@@ -324,8 +284,8 @@ func TestDo_globalConfiguration(t *testing.T) {
 			Key:                "marathon Key",
 			InsecureSkipVerify: true,
 		},
-		DialerTimeout:     flaeg.Duration(666 * time.Second),
-		KeepAlive:         flaeg.Duration(666 * time.Second),
+		DialerTimeout:     parse.Duration(666 * time.Second),
+		KeepAlive:         parse.Duration(666 * time.Second),
 		ForceTaskHostname: true,
 		Basic: &marathon.Basic{
 			HTTPBasicAuthUser: "marathon HTTPBasicAuthUser",
@@ -349,7 +309,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Endpoint:         "ConsulCatalog Endpoint",
@@ -374,7 +334,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Endpoint:               "k8s Endpoint",
@@ -400,7 +360,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Endpoint:           "mesos Endpoint",
@@ -429,12 +389,11 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Endpoint:       "eureka Endpoint",
-		Delay:          flaeg.Duration(30 * time.Second),
-		RefreshSeconds: flaeg.Duration(30 * time.Second),
+		RefreshSeconds: parse.Duration(30 * time.Second),
 	}
 	config.ECS = &ecs.Provider{
 		BaseProvider: provider.BaseProvider{
@@ -452,14 +411,13 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		Domain:               "ecs Domain",
 		ExposedByDefault:     true,
 		RefreshSeconds:       666,
 		Clusters:             ecs.Clusters{"ecs Clusters 1", "ecs Clusters 2", "ecs Clusters 3"},
-		Cluster:              "ecs Cluster",
 		AutoDiscoverClusters: true,
 		Region:               "ecs Region",
 		AccessKeyID:          "ecs AccessKeyID",
@@ -481,7 +439,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		APIConfiguration: rancher.APIConfiguration{
@@ -519,7 +477,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 					MustMatch: true,
 				},
 			},
-			Trace: true,
+			Trace:                     true,
 			DebugLogGeneratedTemplate: true,
 		},
 		AccessKeyID:     "dynamodb AccessKeyID",
@@ -546,7 +504,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 						MustMatch: true,
 					},
 				},
-				Trace: true,
+				Trace:                     true,
 				DebugLogGeneratedTemplate: true,
 			},
 			Endpoint: "etcd Endpoint",
@@ -578,7 +536,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 						MustMatch: true,
 					},
 				},
-				Trace: true,
+				Trace:                     true,
 				DebugLogGeneratedTemplate: true,
 			},
 			Endpoint: "zk Endpoint",
@@ -610,7 +568,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 						MustMatch: true,
 					},
 				},
-				Trace: true,
+				Trace:                     true,
 				DebugLogGeneratedTemplate: true,
 			},
 			Endpoint: "boltdb Endpoint",
@@ -642,7 +600,7 @@ func TestDo_globalConfiguration(t *testing.T) {
 						MustMatch: true,
 					},
 				},
-				Trace: true,
+				Trace:                     true,
 				DebugLogGeneratedTemplate: true,
 			},
 			Endpoint: "consul Endpoint",

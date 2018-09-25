@@ -2,10 +2,11 @@ package middlewares
 
 import (
 	"bufio"
-	"context"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 
 	"github.com/containous/traefik/log"
 )
@@ -40,11 +41,21 @@ func (retry *Retry) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	attempts := 1
 	for {
-		netErrorOccurred := false
-		// We pass in a pointer to netErrorOccurred so that we can set it to true on network errors
-		// when proxying the HTTP requests to the backends. This happens in the custom RecordingErrorHandler.
-		newCtx := context.WithValue(r.Context(), defaultNetErrCtxKey, &netErrorOccurred)
-		retryResponseWriter := newRetryResponseWriter(rw, attempts >= retry.attempts, &netErrorOccurred)
+		attemptsExhausted := attempts >= retry.attempts
+
+		shouldRetry := !attemptsExhausted
+		retryResponseWriter := newRetryResponseWriter(rw, shouldRetry)
+
+		// Disable retries when the backend already received request data
+		trace := &httptrace.ClientTrace{
+			WroteHeaders: func() {
+				retryResponseWriter.DisableRetries()
+			},
+			WroteRequest: func(httptrace.WroteRequestInfo) {
+				retryResponseWriter.DisableRetries()
+			},
+		}
+		newCtx := httptrace.WithClientTrace(r.Context(), trace)
 
 		retry.next.ServeHTTP(retryResponseWriter, r.WithContext(newCtx))
 		if !retryResponseWriter.ShouldRetry() {
@@ -54,31 +65,6 @@ func (retry *Retry) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 		attempts++
 		log.Debugf("New attempt %d for request: %v", attempts, r.URL)
 		retry.listener.Retried(r, attempts)
-	}
-}
-
-// netErrorCtxKey is a custom type that is used as key for the context.
-type netErrorCtxKey string
-
-// defaultNetErrCtxKey is the actual key which value is used to record network errors.
-var defaultNetErrCtxKey netErrorCtxKey = "NetErrCtxKey"
-
-// NetErrorRecorder is an interface to record net errors.
-type NetErrorRecorder interface {
-	// Record can be used to signal the retry middleware that an network error happened
-	// and therefore the request should be retried.
-	Record(ctx context.Context)
-}
-
-// DefaultNetErrorRecorder is the default NetErrorRecorder implementation.
-type DefaultNetErrorRecorder struct{}
-
-// Record is recording network errors by setting the context value for the defaultNetErrCtxKey to true.
-func (DefaultNetErrorRecorder) Record(ctx context.Context) {
-	val := ctx.Value(defaultNetErrCtxKey)
-
-	if netErrorOccurred, isBoolPointer := val.(*bool); isBoolPointer {
-		*netErrorOccurred = true
 	}
 }
 
@@ -104,13 +90,13 @@ type retryResponseWriter interface {
 	http.ResponseWriter
 	http.Flusher
 	ShouldRetry() bool
+	DisableRetries()
 }
 
-func newRetryResponseWriter(rw http.ResponseWriter, attemptsExhausted bool, netErrorOccured *bool) retryResponseWriter {
+func newRetryResponseWriter(rw http.ResponseWriter, shouldRetry bool) retryResponseWriter {
 	responseWriter := &retryResponseWriterWithoutCloseNotify{
-		responseWriter:    rw,
-		attemptsExhausted: attemptsExhausted,
-		netErrorOccured:   netErrorOccured,
+		responseWriter: rw,
+		shouldRetry:    shouldRetry,
 	}
 	if _, ok := rw.(http.CloseNotifier); ok {
 		return &retryResponseWriterWithCloseNotify{responseWriter}
@@ -119,13 +105,16 @@ func newRetryResponseWriter(rw http.ResponseWriter, attemptsExhausted bool, netE
 }
 
 type retryResponseWriterWithoutCloseNotify struct {
-	responseWriter    http.ResponseWriter
-	attemptsExhausted bool
-	netErrorOccured   *bool
+	responseWriter http.ResponseWriter
+	shouldRetry    bool
 }
 
 func (rr *retryResponseWriterWithoutCloseNotify) ShouldRetry() bool {
-	return *rr.netErrorOccured && !rr.attemptsExhausted
+	return rr.shouldRetry
+}
+
+func (rr *retryResponseWriterWithoutCloseNotify) DisableRetries() {
+	rr.shouldRetry = false
 }
 
 func (rr *retryResponseWriterWithoutCloseNotify) Header() http.Header {
@@ -137,12 +126,21 @@ func (rr *retryResponseWriterWithoutCloseNotify) Header() http.Header {
 
 func (rr *retryResponseWriterWithoutCloseNotify) Write(buf []byte) (int, error) {
 	if rr.ShouldRetry() {
-		return 0, nil
+		return len(buf), nil
 	}
 	return rr.responseWriter.Write(buf)
 }
 
 func (rr *retryResponseWriterWithoutCloseNotify) WriteHeader(code int) {
+	if rr.ShouldRetry() && code == http.StatusServiceUnavailable {
+		// We get a 503 HTTP Status Code when there is no backend server in the pool
+		// to which the request could be sent.  Also, note that rr.ShouldRetry()
+		// will never return true in case there was a connection established to
+		// the backend server and so we can be sure that the 503 was produced
+		// inside Traefik already and we don't have to retry in this cases.
+		rr.DisableRetries()
+	}
+
 	if rr.ShouldRetry() {
 		return
 	}
@@ -150,7 +148,11 @@ func (rr *retryResponseWriterWithoutCloseNotify) WriteHeader(code int) {
 }
 
 func (rr *retryResponseWriterWithoutCloseNotify) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	return rr.responseWriter.(http.Hijacker).Hijack()
+	hijacker, ok := rr.responseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("%T is not a http.Hijacker", rr.responseWriter)
+	}
+	return hijacker.Hijack()
 }
 
 func (rr *retryResponseWriterWithoutCloseNotify) Flush() {
